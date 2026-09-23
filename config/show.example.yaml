@@ -1,0 +1,40 @@
+# Como el cerebro traduce instrumentos a luces y visuales, y que escenas existen.
+
+outputs:
+  touchdesigner: { osc_host: 127.0.0.1, osc_port: 9000 }
+  resolume:      { enabled: false, osc_host: 127.0.0.1, osc_port: 7000 }
+  midi_mirror:   { enabled: true, port: "AVI Out" }
+
+control:
+  midi_in_port: "AVI In"        # tu controlador MIDI (L1/L4 lo confirma)
+
+ui:
+  host: 127.0.0.1
+  port: 8080
+
+# Instrumento (rastreador adaptativo) -> intencion sobre un grupo de luces
+# (los grupos y sus delays viven en config/fixtures.yaml) y parametro de TouchDesigner.
+mapping:
+  sub:   { lights: { all:   dimmer_base },  td: scale_slow }
+  kick:  { lights: { front: dimmer_flash }, td: zoom_pulse }
+  bass:  { lights: { all:   hue_shift },    td: noise_amp }
+  voice: { lights: { all:   white },        td: brightness }
+  snare: { lights: { all:   strobe },       td: glitch, only_sections: [drop] }
+  hats:  { lights: { wave:  chase },        td: sparkle_rate }
+
+# Paletas: 3 colores RGB 0-1. Luces y visuales usan siempre la misma.
+palettes:
+  frio:    [[0.1, 0.3, 1.0], [0.0, 0.8, 0.9], [0.6, 0.6, 1.0]]
+  fuego:   [[1.0, 0.2, 0.0], [1.0, 0.6, 0.0], [1.0, 1.0, 0.8]]
+  neon:    [[1.0, 0.1, 0.4], [0.1, 0.3, 1.0], [1.0, 1.0, 1.0]]
+
+# Escenas: indice de escena en TouchDesigner + clip en Resolume + paletas permitidas
+scenes:
+  - { id: 0, name: ambiente, td_scene: 0, resolume_clip: 1, palettes: [frio],        sections: [calm, break] }
+  - { id: 1, name: subida,   td_scene: 1, resolume_clip: 2, palettes: [frio, neon],  sections: [build] }
+  - { id: 2, name: drop,     td_scene: 2, resolume_clip: 3, palettes: [fuego, neon], sections: [drop] }
+
+rules:
+  phrase_beats: 16          # cambios de escena cuantizados a frase
+  min_scene_bars: 8
+  section_hysteresis_bars: 2
