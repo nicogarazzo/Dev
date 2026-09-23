@@ -3,10 +3,10 @@
 outputs:
   touchdesigner: { osc_host: 127.0.0.1, osc_port: 9000 }
   resolume:      { enabled: false, osc_host: 127.0.0.1, osc_port: 7000 }
-  midi_mirror:   { enabled: true, port: "AVI Out" }
+  midi_mirror:   { enabled: true, port: "Driver IAC Bus 1" }   # en la Mac: bus IAC ya existente
 
 control:
-  midi_in_port: "AVI In"        # tu controlador MIDI (L1/L4 lo confirma)
+  midi_in_port: "Driver IAC Bus 2"   # o el puerto de tu controlador MIDI (L4 lo confirma)
 
 ui:
   host: 127.0.0.1
