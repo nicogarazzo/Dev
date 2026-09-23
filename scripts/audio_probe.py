@@ -20,7 +20,7 @@ def load_bands():
     bands = cfg.get("bands") or cfg
     out = []
     for name, rng in bands.items():
-        lo, hi = rng["hz"] if isinstance(rng, dict) else rng
+        lo, hi = (rng.get("nominal_hz") or rng["hz"]) if isinstance(rng, dict) else rng
         out.append((name, float(lo), float(hi)))
     return out
 

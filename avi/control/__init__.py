@@ -1,4 +1,4 @@
-"""F4 - Control: controlador MIDI de entrada -> overrides (escena, paleta, blackout, auto).
+"""F5 - Control: controlador MIDI de entrada -> overrides (escena, paleta, blackout, auto).
 
-Pendiente. Ver docs/PLAN_MVP.md, seccion 6 ("MIDI de entrada").
+Pendiente. Ver docs/PLAN_MVP.md, seccion 7 ("MIDI de entrada").
 """

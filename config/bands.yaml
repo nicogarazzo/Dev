@@ -1,18 +1,28 @@
-# Bandas de frecuencia que analiza el cerebro (F1).
-# hz: [desde, hasta]. onset: si detecta golpes en esta banda.
+# Rastreadores adaptativos por instrumento (F1).
+# Los filtros NO son fijos: cada rastreador parte de su rango nominal, busca su
+# instrumento dentro de `search_hz` y reajusta su huella espectral continuamente.
+# Ver docs/PLAN_MVP.md, seccion 4.
 sample_rate: 48000
 block_size: 512        # ~11 ms por bloque a 48 kHz
 fft_size: 2048
+hop_size: 512
 
-bands:
-  sub:     { hz: [20, 60],      onset: false, instrument: "808 / sub-bass" }
-  kick:    { hz: [60, 150],     onset: true,  instrument: "bombo" }
-  lowmid:  { hz: [150, 400],    onset: false, instrument: "bajo / cuerpo" }
-  mid:     { hz: [400, 2000],   onset: false, instrument: "voces / synths" }
-  highmid: { hz: [2000, 6000],  onset: true,  instrument: "snare / clap" }
-  high:    { hz: [6000, 16000], onset: true,  instrument: "hats / platos" }
+trackers:
+  sub:   { nominal_hz: [20, 60],     search_hz: [20, 90],     character: tonal,     onset: false, label: "808 / sub-bass" }
+  kick:  { nominal_hz: [60, 150],    search_hz: [40, 200],    character: transient, onset: true,  label: "bombo" }
+  bass:  { nominal_hz: [150, 400],   search_hz: [60, 500],    character: tonal,     onset: false, label: "bajo" }
+  voice: { nominal_hz: [400, 2000],  search_hz: [250, 4000],  character: sustained, onset: false, label: "voces / synths" }
+  snare: { nominal_hz: [2000, 6000], search_hz: [1000, 8000], character: transient, onset: true,  label: "snare / clap" }
+  hats:  { nominal_hz: [6000, 16000],search_hz: [4000, 18000],character: transient, onset: true,  label: "hats / platos" }
 
-# Suavizado de la energia (0 = sin suavizar, 1 = congelado)
+adaptation:
+  template_time_constant_s: 4.0   # que tan rapido se actualiza la huella espectral (2-8 s)
+  center_max_shift_per_s: 0.05    # fraccion del rango de busqueda que el centro puede moverse por segundo
+  hysteresis: 0.15                # cambio minimo relativo para mover la huella
+  min_confidence: 0.3             # por debajo, el rastreador vuelve al rango nominal
+  mask: wiener                    # reparto de energia por bin entre rastreadores
+
+# Suavizado del nivel de cada instrumento (0 = sin suavizar, 1 = congelado)
 smoothing:
   attack: 0.2
   release: 0.85

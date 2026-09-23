@@ -1,9 +1,9 @@
 # AVI — Plan del MVP
 
-**AVI** = un solo "cerebro" que escucha la música, la separa por bandas de frecuencia
-y decide, de forma autónoma, qué hacen las luces (vía MIDI → EMU → DMX) y qué hacen
-los visuales (TouchDesigner, y opcionalmente Resolume), con los mismos colores y el
-mismo pulso.
+**AVI** = un solo "cerebro" que escucha la música, rastrea cada instrumento en el
+espectro de forma adaptativa y decide, autónomamente, qué hacen las luces
+(vía MIDI → EMU → DMX) y qué hacen los visuales (TouchDesigner, y opcionalmente
+Resolume), con los mismos colores y el mismo pulso.
 
 ---
 
@@ -11,17 +11,19 @@ mismo pulso.
 
 El MVP está hecho cuando, con una canción sonando en tu computador:
 
-1. Las luces reaccionan por banda (bombo, bajo, voces, hats…) a través de tu EMU.
-2. TouchDesigner muestra **3 escenas** que reaccionan a las mismas bandas.
+1. Las luces reaccionan por instrumento (bombo, bajo, voces, snare, hats) a través de tu EMU.
+2. TouchDesigner muestra **3 escenas** que reaccionan a los mismos instrumentos.
 3. Luces y visuales usan **la misma paleta de color** en todo momento.
 4. El cerebro **cambia de escena y paleta solo** cuando la canción cambia de sección
    (intro → build → drop → break), alineado al compás.
-5. Un controlador MIDI puede **forzar** escena / paleta / blackout (override manual).
+5. Tu hardware se configura y se verifica desde una **UI local** (dispositivos, canales,
+   grupos, delays) sin tocar código, y un controlador MIDI puede **forzar** escena /
+   paleta / blackout.
 
 Latencia objetivo audio → luz: **< 50 ms** percibidos.
 
 > Supuesto: "que actúe como el DJ" = reaccionar y dirigir el show sobre la música
-> que ya suena. Elegir o mezclar canciones queda fuera del MVP (ver §9).
+> que ya suena. Elegir o mezclar canciones queda fuera del MVP (ver §10).
 
 ---
 
@@ -29,12 +31,13 @@ Latencia objetivo audio → luz: **< 50 ms** percibidos.
 
 | Decisión | Elegido | Por qué |
 |---|---|---|
-| Lenguaje del cerebro | **Python 3.11** | Se puede escribir y **probar en cloud** con audio sintético; tiene librerías maduras para MIDI (`mido`) y OSC (`python-osc`). Un patch de Pd no se puede testear aquí. |
+| Lenguaje del cerebro | **Python 3.11** | Se puede escribir y **probar en cloud** con audio sintético; librerías maduras para MIDI (`mido`), OSC (`python-osc`) y UI web (`fastapi`). Un patch de Pd no se puede testear aquí. |
 | Tu prototipo Pure Data | **Entrada opcional** | Si quieres reutilizarlo, que mande OSC al cerebro (`/pd/band/*`). Ver `puredata/README.md`. |
-| Análisis de audio | FFT propia con `numpy` | Sin dependencias difíciles de instalar en Windows. `aubio` queda como mejora. |
-| Salida a luces | **MIDI → EMU → DMX** | Es el hardware que tienes. La tabla exacta nota/CC → canal DMX se descubre en la fase local L2. |
-| Salida a TouchDesigner | **OSC** (+ MIDI espejo) | OSC lleva floats 0–1 con nombre (`/avi/band/kick`), más preciso que MIDI (0–127). El MIDI espejo queda para software de DJ/VJ. |
-| TouchDesigner → Resolume | Video por **Spout** (Win) / **Syphon** (Mac); cambios de clip por OSC desde el cerebro | Resolume es opcional (de pago); el MVP funciona sin él. |
+| Análisis de audio | **Rastreadores adaptativos** sobre espectrograma (`numpy`) | Los filtros no son fijos: cada instrumento se busca y se sigue en lo que suena (§4). |
+| Hardware de luces | **Capa de patch** independiente del cerebro + UI web local | Cualquier luz/interfaz se describe en perfiles; se verifica y ajusta desde la UI (§5). |
+| Salida a luces hoy | **MIDI → EMU → DMX** | Es el hardware que tienes. Es una implementación más de `DmxOutput`; Art-Net/USB-DMX se añaden después sin tocar el cerebro. |
+| Salida a TouchDesigner | **OSC** (+ MIDI espejo) | OSC lleva floats 0–1 con nombre, más preciso que MIDI (0–127). El MIDI espejo queda para software de DJ/VJ. |
+| Resolume | **Opcional**; TD hace el cambio de patches | Resolume no tiene versión libre (la demo pone marca de agua y corta el audio). TouchDesigner puede conmutar escenas por sí mismo. |
 | Red de TouchDesigner | Generada por **script Python** que corres dentro de TD | Un `.toe` es binario; un script se versiona y se escribe en cloud. |
 
 ---
@@ -43,14 +46,17 @@ Latencia objetivo audio → luz: **< 50 ms** percibidos.
 
 ```mermaid
 flowchart LR
-  A[Audio: loopback o line-in] --> B[Análisis: 6 bandas + onsets + BPM]
+  A[Audio: loopback o line-in] --> B[Análisis adaptativo: espectrograma + rastreadores por instrumento]
   PD[Tu prototipo Pure Data - opcional] -. OSC .-> B
   B --> C[CEREBRO: sección + escena + paleta]
   K[Controlador MIDI - override] --> C
-  C -->|MIDI| E[EMU MIDI→DMX] -->|DMX512| L[Luces]
+  C --> P[PATCH: perfiles, grupos, delays -> canales DMX]
+  P -->|MIDI| E[EMU MIDI→DMX] -->|DMX512| L[Luces]
   C -->|OSC| T[TouchDesigner]
   C -->|OSC| R[Resolume - opcional]
   T -->|Spout / Syphon| R
+  U[UI web local: configurar, probar, monitorear] <--> P
+  U <--> B
 ```
 
 **La clave del "un solo cerebro":** cada ~10 ms el cerebro produce un único
@@ -64,8 +70,14 @@ decide nada por su cuenta. Así es imposible que se desincronicen los colores.
   "section": "drop",
   "scene": 2,
   "palette": [[1.0, 0.1, 0.4], [0.1, 0.3, 1.0], [1.0, 1.0, 1.0]],
-  "bands":  {"sub": 0.8, "kick": 0.95, "lowmid": 0.4, "mid": 0.3, "highmid": 0.2, "high": 0.6},
-  "onsets": {"kick": true, "highmid": false, "high": true},
+  "instruments": {
+    "kick":  { "level": 0.95, "onset": true,  "hz": [48, 130],    "confidence": 0.9 },
+    "bass":  { "level": 0.40, "onset": false, "hz": [70, 310],    "confidence": 0.7 },
+    "voice": { "level": 0.30, "onset": false, "hz": [420, 2600],  "confidence": 0.5 },
+    "snare": { "level": 0.20, "onset": false, "hz": [1800, 5500], "confidence": 0.8 },
+    "hats":  { "level": 0.60, "onset": true,  "hz": [7000, 15000],"confidence": 0.8 },
+    "sub":   { "level": 0.80, "onset": false, "hz": [25, 55],     "confidence": 0.9 }
+  },
   "override": null
 }
 ```
@@ -74,45 +86,104 @@ Módulos (una carpeta por fase, ver `avi/`):
 
 | Módulo | Hace | Fase |
 |---|---|---|
-| `avi/audio` | Captura, FFT, energía por banda, onsets, BPM | F1 |
+| `avi/audio` | Captura, espectrograma, rastreadores adaptativos, onsets, BPM | F1 |
 | `avi/brain` | Detecta sección, elige escena y paleta, produce `ShowState` | F2 |
-| `avi/outputs` | `ShowState` → MIDI (EMU), OSC (TD), OSC (Resolume) | F3 |
-| `avi/control` | Controlador MIDI de entrada → overrides | F4 |
+| `avi/patch` | Perfiles de luces, fixtures, grupos con delay, `DmxOutput` (EMU, fake, futuros) | F3 |
+| `avi/outputs` | `ShowState` → patch → MIDI (EMU); `ShowState` → OSC (TD, Resolume) | F3 |
+| `avi/ui` | UI web local para configurar hardware, probar canales y monitorear | F4 |
+| `avi/control` | Controlador MIDI de entrada → overrides | F5 |
 | `touchdesigner/` | Script que construye la red de TD | F5 |
 
 ---
 
-## 4. Mapeo banda → luz → TouchDesigner
+## 4. Análisis adaptativo: rastreadores por instrumento
 
-Valores por defecto (editables en `config/bands.yaml` y `config/show.example.yaml`).
+Los filtros **no son bandas fijas**. Cada instrumento tiene un *rastreador* que mira el
+espectrograma, decide dónde está "su" instrumento en lo que suena ahora, y se
+reajusta continuamente.
 
-| Banda | Hz | Instrumento aprox. | Luces (DMX) | TouchDesigner |
-|---|---|---|---|---|
-| `sub` | 20–60 | 808, sub-bass | Dimmer base de todas (respira) | Escala / deformación lenta |
-| `kick` | 60–150 | Bombo | Flash de dimmer en PARs frontales | Pulso de zoom + feedback |
-| `lowmid` | 150–400 | Bajo, cuerpo | Desplaza el tono dentro de la paleta | Amplitud del ruido / desplazamiento |
-| `mid` | 400–2k | Voces, synths | Canal blanco (W) / intensidad secundaria | Brillo, densidad de partículas |
-| `highmid` | 2k–6k | Snare, clap | Strobe corto (solo en `drop`) | Glitch / corte de cámara |
-| `high` | 6k–16k | Hats, platos | Chase entre luces | Chispas, velocidad de partículas |
+Cómo funciona cada rastreador:
+
+1. **Punto de partida**: un rango nominal (p. ej. bombo 60–150 Hz) dentro de un rango
+   de búsqueda más amplio (40–200 Hz) y un carácter: *transitorio* (bombo, snare, hats)
+   o *sostenido/tonal* (sub, bajo, voz).
+2. **Huella espectral**: el rastreador guarda la forma del espectro en los momentos en
+   que su instrumento domina (en los golpes, para los transitorios; en los frames
+   estables, para los tonales) y la actualiza con una constante de tiempo de 2–8 s.
+3. **Máscara suave**: en cada frame, la energía de cada bin del espectro se reparte
+   entre los rastreadores en proporción a sus huellas (tipo Wiener). El nivel del
+   instrumento es la energía que le tocó, no la de una banda fija. Así el bombo y el
+   bajo dejan de "contaminarse" aunque compartan frecuencias.
+4. **Reajuste del filtro**: el centro y el ancho de la huella se mueven despacio hacia
+   la región de más energía dentro del rango de búsqueda, con histéresis; nunca salen
+   del rango de búsqueda.
+5. **Confianza**: si la huella es débil o ambigua, el rastreador vuelve al rango nominal
+   y baja su `confidence`. La UI (§5) y el `ShowState` muestran el rango actual de cada
+   rastreador para que veas qué está capturando.
+
+| Instrumento | Nominal | Búsqueda | Carácter | Luces (DMX) | TouchDesigner |
+|---|---|---|---|---|---|
+| `sub` | 20–60 Hz | 20–90 Hz | tonal | Dimmer base de todas (respira) | Escala / deformación lenta |
+| `kick` | 60–150 Hz | 40–200 Hz | transitorio | Flash de dimmer en grupo frontal | Pulso de zoom + feedback |
+| `bass` | 150–400 Hz | 60–500 Hz | tonal | Desplaza el tono dentro de la paleta | Amplitud del ruido / desplazamiento |
+| `voice` | 400–2k Hz | 250–4k Hz | sostenido | Canal blanco (W) / intensidad secundaria | Brillo, densidad de partículas |
+| `snare` | 2–6 kHz | 1–8 kHz | transitorio | Strobe corto (solo en `drop`) | Glitch / corte de cámara |
+| `hats` | 6–16 kHz | 4–18 kHz | transitorio | Chase con delay entre luces | Chispas, velocidad de partículas |
 
 **Color compartido:** el cerebro tiene una paleta de 3 colores.
-- Luces RGB = `paleta[i] × intensidad de su banda`.
+- Luces RGB = `paleta[i] × nivel de su instrumento`.
 - TouchDesigner recibe los mismos RGB por `/avi/color/1..3` → los usa en sus Ramp/Constant TOP.
 
-**Instrumentos reales (no solo bandas):** separar stems en vivo es caro y con latencia.
-En el MVP las bandas son el proxy. Post-MVP: pre-analizar canciones con Demucs (offline)
-y cargar esa "partitura" junto al audio.
+Post-MVP: pre-analizar canciones con Demucs (stems offline) para entrenar las huellas
+con instrumentos reales.
 
 ---
 
-## 5. Motor de escenas (el "DJ de luces")
+## 5. Capa de hardware: patch, grupos, delays y UI
+
+Para que AVI funcione con **cualquier** luz o interfaz que aparezca, el cerebro nunca
+habla de canales DMX; habla de *intenciones* (`dimmer`, `color`, `strobe`, `white`)
+sobre *grupos*. La capa de patch traduce eso a canales según la configuración.
+
+**Modelo de datos** (`config/fixtures.yaml`, editable desde la UI):
+
+| Nivel | Qué describe | Ejemplo |
+|---|---|---|
+| **Output** | Cómo salen los bytes DMX | `emu` (MIDI → DMX), `fake` (para tests), futuros: `artnet`, `enttec` |
+| **Perfil** | Qué hace cada canal de un modelo de luz | PAR RGBW 8ch: dimmer=1, R=2, G=3, B=4, W=5, strobe=6 … |
+| **Fixture** | Una luz concreta | `par_1`: perfil `par_rgbw_8ch`, dirección 1, output `emu` |
+| **Grupo** | Conjunto de fixtures con orden y **delay** | `back`: [par_3, par_4], delay 60 ms por luz → efecto de ola |
+
+Perfiles: se escriben a mano en la UI o se **importan de Open Fixture Library**
+(open-fixture-library.org, JSON abierto con miles de luces, incluidas genéricas chinas).
+
+**Grupos con delay**: cada grupo tiene `delay_ms` (o `delay_beats`) y `order`
+(`left_to_right`, `center_out`, `random`). Un efecto (flash, chase, color) lanzado al
+grupo se aplica a cada fixture con `delay × posición`. Así salen olas, barridos y chases
+sin programar nada por luz.
+
+**UI web local** (`avi ui` → `http://localhost:8080`, fase F4), cinco pestañas:
+
+1. **Dispositivos**: puertos MIDI, output activo, prueba de conexión.
+2. **Perfiles**: crear/editar canales de un modelo, importar de Open Fixture Library.
+3. **Patch**: asignar dirección y perfil a cada fixture, armar grupos, definir delays.
+4. **Probar**: slider por canal, botón *Identificar* (parpadea la luz), enviar un color
+   y confirmar que llega el correcto; corrige el perfil ahí mismo si no.
+5. **Monitor**: espectrograma en vivo con el rango actual de cada rastreador, niveles
+   por instrumento, sección/escena, valores DMX y mensajes OSC saliendo.
+
+Todo lo que se toca en la UI se guarda en `config/*.yaml` (versionable en git).
+
+---
+
+## 6. Motor de escenas (el "DJ de luces")
 
 Máquina de estados simple y predecible:
 
 | Sección | Cómo se detecta | Qué hace |
 |---|---|---|
 | `calm` | Energía corta ≈ larga, poco bombo | Paleta fría, movimientos lentos, sin strobe |
-| `build` | Energía de `high` y `highmid` subiendo durante ≥ 4 compases | Acelera chase, sube intensidad, prepara cambio |
+| `build` | Nivel de `hats` y `snare` subiendo durante ≥ 4 compases | Acelera chase, sube intensidad, prepara cambio |
 | `drop` | Salto de energía total + bombo denso tras un `build` o `break` | Cambia escena + paleta, strobe habilitado |
 | `break` | Bombo desaparece ≥ 2 compases | Baja dimmer, visual ambiental |
 
@@ -124,14 +195,14 @@ Reglas anti-caos:
 
 ---
 
-## 6. Protocolos y puertos (contrato entre módulos)
+## 7. Protocolos y puertos (contrato entre módulos)
 
 **OSC → TouchDesigner** (UDP `127.0.0.1:9000`)
 
 | Dirección | Tipo | Rango |
 |---|---|---|
-| `/avi/band/{sub,kick,lowmid,mid,highmid,high}` | float | 0–1 |
-| `/avi/onset/{banda}` | int | 1 en el golpe |
+| `/avi/inst/{sub,kick,bass,voice,snare,hats}` | float | 0–1 |
+| `/avi/onset/{instrumento}` | int | 1 en el golpe |
 | `/avi/bpm` · `/avi/beat` · `/avi/bar` | float · int · int | — |
 | `/avi/color/{1,2,3}` | float r g b | 0–1 |
 | `/avi/scene` | int | 0..N-1 |
@@ -143,36 +214,36 @@ Reglas anti-caos:
 
 **MIDI → EMU** (puerto MIDI de la EMU)
 - Modo por defecto supuesto: **nota = canal DMX, velocity = valor** (velocity × 2 ≈ 0–254).
-- Se confirma o corrige en L2 y queda en `config/fixtures.yaml` → `emu:`.
+- Se confirma o corrige en L2 (y desde la pestaña *Probar* de la UI) y queda en `config/fixtures.yaml` → `outputs.emu`.
 
 **MIDI espejo** (puerto virtual `AVI Out`, para TD/DJ software)
-- Canal 1, CC 1–6 = bandas; notas 36–41 = onsets; Program Change = escena.
+- Canal 1, CC 1–6 = instrumentos; notas 36–41 = onsets; Program Change = escena.
 
 **MIDI de entrada** (tu controlador → puerto `AVI In`)
 - Pads 1–8 = forzar escena; knob 1 = paleta; botón = blackout; botón = "auto" (suelta override).
 
 ---
 
-## 7. Fases, en orden
+## 8. Fases, en orden
 
 Cloud = lo hago yo aquí con PRs. Local = prompt listo para tu LLM local en
 `docs/prompts_llm_local/`.
 
 ### Bloque A — Arranque (ya)
-1. **Cloud · F0** — Este plan + esqueleto + configs de ejemplo. *(este PR)*
+1. **Cloud · F0** — Este plan + esqueleto + configs de ejemplo. *(PR #2)*
 2. **Local · L1** — Instalar Python, loopback de audio, puertos MIDI virtuales, TouchDesigner. → `L1_setup_entorno.md`
 3. **Local · L2** — Descubrir cómo tu EMU mapea MIDI → DMX y los canales de tus luces. → `L2_mapear_emu_y_luces.md`
 
 ### Bloque B — Cerebro (cloud)
-1. **F1 · Análisis** — FFT, 6 bandas, onsets, BPM + simulador offline (`avi analyze cancion.wav` → timeline JSON) + tests con audio sintético.
+1. **F1 · Análisis adaptativo** — Espectrograma, rastreadores con huella espectral y máscara suave, onsets, BPM + simulador offline (`avi analyze cancion.wav` → timeline JSON) + tests con audio sintético (bombo y bajo superpuestos deben separarse).
 2. **F2 · Cerebro** — Secciones, escenas, paleta, `ShowState` + tests.
-3. **F3 · Salidas** — MIDI a EMU (usando el mapa de L2), OSC a TD, OSC a Resolume, modo `--dry-run` que imprime lo que enviaría.
-4. **F4 · Control** — Controlador MIDI de entrada + overrides.
-5. **F5 · TouchDesigner** — Script que construye la red: OSC In → 3 escenas → Switch.
+3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay, `DmxOutput` (EMU MIDI y `fake`), OSC a TD y Resolume, modo `--dry-run`.
+4. **F4 · UI web de hardware** — Dispositivos, perfiles (importa Open Fixture Library), patch, probar/identificar, monitor en vivo. Testeada en cloud con el output `fake`.
+5. **F5 · Control + TouchDesigner** — Controlador MIDI de entrada con overrides, y script que construye la red de TD: OSC In → 3 escenas → Switch.
 
 ### Bloque C — En vivo (local)
-1. **L3** — Correr el analizador con una canción real y calibrar umbrales (después de F1).
-2. **L4** — Construir la red de TD con el script y prueba integrada audio → luces + visuales (después de F3 y F5).
+1. **L3** — Correr el analizador con una canción real y ver en el monitor qué captura cada rastreador; ajustar rangos de búsqueda (después de F1).
+2. **L4** — Configurar tu hardware en la UI, verificar cada luz con *Identificar*, construir la red de TD con el script y prueba integrada audio → luces + visuales (después de F3, F4 y F5).
 3. **L5** — (Opcional) Resolume: recibir TD por Spout/Syphon y clips por OSC.
 
 Cada fase cloud = 1 PR con tests verdes. Cada fase local = 1 prompt que termina
@@ -181,13 +252,14 @@ lo tome en la siguiente fase sin que copies nada a mano.
 
 ---
 
-## 8. Riesgos y supuestos
+## 9. Riesgos y supuestos
 
 | Riesgo | Mitigación |
 |---|---|
-| No conozco la tabla exacta de tu EMU | L2 la descubre con barridos de notas/CC; la salida es configurable |
-| Las luces chinas varían en canales (3, 4, 7, 8 ch) | `config/fixtures.yaml` por modelo; L2 lo identifica |
-| MIDI es de 7 bits (0–127) → saltos visibles en fades lentos | Aceptable en MVP; post-MVP: interfaz USB-DMX (Enttec) |
+| Los rastreadores adaptativos se "roban" el instrumento del vecino | Máscara normalizada (la energía de un bin se reparte, no se duplica), rangos de búsqueda acotados, vuelta al nominal si baja la confianza; tests con mezclas sintéticas |
+| No conozco la tabla exacta de tu EMU | L2 la descubre con barridos de notas/CC; la pestaña *Probar* de la UI lo verifica |
+| Las luces chinas varían en canales (3, 4, 7, 8 ch) | Perfiles por modelo, importables de Open Fixture Library o editables en la UI |
+| MIDI es de 7 bits (0–127) → saltos visibles en fades lentos | Aceptable en MVP; post-MVP: output Art-Net / USB-DMX (misma capa de patch) |
 | Windows no crea puertos MIDI virtuales desde Python | L1 instala **loopMIDI** (Win); en Mac se usa **IAC Driver** |
 | TouchDesigner gratis limita a 1280×1280 | Suficiente para MVP |
 | Latencia de loopback | Buffer de 512 muestras @ 48 kHz ≈ 11 ms |
@@ -196,10 +268,10 @@ Sistema operativo: los prompts locales lo detectan solos (Windows o macOS).
 
 ---
 
-## 9. Después del MVP
+## 10. Después del MVP
 
-- Pre-análisis por stems (Demucs) para mapear instrumentos reales.
+- Pre-análisis por stems (Demucs) para entrenar las huellas con instrumentos reales.
 - Aprender tus preferencias: guardar overrides y usarlos para ajustar reglas.
-- Salida DMX directa (Art-Net / USB-DMX) con 16 bits y más universos.
+- Salidas Art-Net / sACN / USB-DMX con 16 bits y más universos (misma capa de patch).
 - Integración con software de DJ (Rekordbox/Serato/Traktor vía MIDI clock o Ableton Link).
-- Interfaz web para ver el `ShowState` en vivo.
+- Editor visual de escenas y efectos en la misma UI web.

@@ -1,27 +1,23 @@
-# Mapa de hardware de luces. La fase local L2 crea config/fixtures.yaml a partir de este.
-# Todo lo marcado VERIFICAR es un supuesto hasta que L2 lo confirme.
+# Capa de hardware (patch). La fase local L2 y la UI (F4) crean config/fixtures.yaml
+# a partir de este. Todo lo marcado VERIFICAR es un supuesto hasta confirmarlo.
+# Ver docs/PLAN_MVP.md, seccion 5.
 
-# Salida DMX directa (avi/outputs/dmx.py). "EMU" es el software de ENTTEC y su control
-# MIDI es de pago, asi que AVI habla con el hardware ENTTEC sin pasar por EMU.
-# Ver docs/hardware/emu_y_luces.md.
-dmx:
-  backend: enttec_pro           # VERIFICAR en L2: enttec_pro | artnet | null
-  serial_port: "VERIFICAR"      # /dev/tty.usbserial-EN... (python scripts/dmx_probe.py --list)
-  host: 255.255.255.255         # solo artnet
-  universe: 0
+# Como salen los bytes DMX. El cerebro nunca habla con esto directamente.
+outputs:
+  emu:
+    type: midi_dmx
+    midi_port: "VERIFICAR"        # nombre exacto del puerto MIDI de la EMU
+    mode: note                    # VERIFICAR: note (nota = canal DMX) o cc (CC = canal DMX)
+    midi_channel_base: 1          # VERIFICAR: canal MIDI 1 -> DMX 1-128, canal 2 -> 129-256 ...
+    dmx_offset: 1                 # VERIFICAR: nota 0 -> DMX 1 (offset 1) o nota 1 -> DMX 1 (offset 0)
+    value_scale: 2                # velocity 0-127 x 2 = DMX 0-254
+  fake:
+    type: fake                    # para tests y --dry-run: imprime los canales en vez de enviarlos
 
-# Solo si el hardware resultara ser una caja MIDI->DMX de otra marca (nota = canal DMX).
-emu_midi:
-  enabled: false
-  midi_port: "VERIFICAR"
-  mode: note
-  midi_channel_base: 1
-  dmx_offset: 1
-  value_scale: 2
-
-# Perfiles de luz (canales relativos a la direccion DMX de inicio de cada luz)
+# Perfiles de luz: que hace cada canal (relativo a la direccion de inicio).
+# Se editan en la UI o se importan de Open Fixture Library (open-fixture-library.org).
 profiles:
-  par_rgbw_8ch:                 # VERIFICAR con el manual o el menu de la luz
+  par_rgbw_8ch:                   # VERIFICAR con el manual o el menu de la luz
     channels: 8
     dimmer: 1
     red: 2
@@ -29,12 +25,20 @@ profiles:
     blue: 4
     white: 5
     strobe: 6
-    mode: 7                     # dejar en 0 para control manual
+    mode: 7                       # dejar en 0 para control manual
     speed: 8
 
-# Luces instaladas. group decide que bandas les afectan (ver config/show.example.yaml)
+# Luces concretas.
 fixtures:
-  - { name: par_1, profile: par_rgbw_8ch, address: 1,  group: front }
-  - { name: par_2, profile: par_rgbw_8ch, address: 9,  group: front }
-  - { name: par_3, profile: par_rgbw_8ch, address: 17, group: back }
-  - { name: par_4, profile: par_rgbw_8ch, address: 25, group: back }
+  - { name: par_1, profile: par_rgbw_8ch, address: 1,  output: emu }
+  - { name: par_2, profile: par_rgbw_8ch, address: 9,  output: emu }
+  - { name: par_3, profile: par_rgbw_8ch, address: 17, output: emu }
+  - { name: par_4, profile: par_rgbw_8ch, address: 25, output: emu }
+
+# Grupos: el cerebro habla de intenciones (dimmer, color, strobe) sobre grupos.
+# delay_ms se aplica por posicion en el grupo -> olas, barridos y chases.
+groups:
+  all:   { members: [par_1, par_2, par_3, par_4], order: left_to_right, delay_ms: 0 }
+  front: { members: [par_1, par_2],               order: left_to_right, delay_ms: 0 }
+  back:  { members: [par_3, par_4],               order: left_to_right, delay_ms: 60 }
+  wave:  { members: [par_1, par_2, par_3, par_4], order: center_out,    delay_beats: 0.125 }

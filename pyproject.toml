@@ -10,11 +10,11 @@ dependencies = [
     "python-rtmidi>=1.5",
     "python-osc>=1.8",
     "sounddevice>=0.4",
-    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+ui = ["fastapi>=0.110", "uvicorn>=0.29"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
