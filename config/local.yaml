@@ -23,7 +23,7 @@ midi_in_virtual: "Driver IAC Bus 2"    # AVI In: entrada de control
 controller_midi_port: null             # no hay controlador MIDI conectado
 
 apps:
-  touchdesigner_version: null           # no instalado
+  touchdesigner_version: "2025.33230"   # instalado con brew --cask el 2026-09-23 (licencia non-commercial pendiente de activar en el primer arranque)
   resolume: "Arena 7.10.0"
   puredata: "Pd 0.52-2"
   dj: "rekordbox 6"
