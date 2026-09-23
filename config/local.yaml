@@ -1,0 +1,22 @@
+# Entorno local de la Mac de Nicolás (fase L1). Detectado automáticamente el 2026-09-23.
+os: macos 26.6.2 (arm64)
+python: "3.11.15 (.venv en la raíz del repo)"
+
+# Loopback de audio: VB-Cable ya estaba instalado, se usa en vez de BlackHole.
+# Para que AVI escuche, la salida del sistema (o de rekordbox) debe ir a un
+# dispositivo de salida múltiple que incluya VB-Cable.
+audio_input: "VB-Cable"
+
+# La EMU no estaba conectada por USB al momento de la detección.
+emu_midi_port: null           # VERIFICAR en L2 con la EMU conectada
+
+# El IAC Driver ya está activo con dos buses; se usan tal cual en vez de renombrarlos.
+midi_out_virtual: "Driver IAC Bus 1"   # AVI Out: espejo MIDI hacia TouchDesigner / rekordbox
+midi_in_virtual: "Driver IAC Bus 2"    # AVI In: entrada de control
+controller_midi_port: null             # no hay controlador MIDI conectado
+
+apps:
+  touchdesigner_version: null           # no instalado
+  resolume: "Arena 7.10.0"
+  puredata: "Pd 0.52-2"
+  dj: "rekordbox 6"
