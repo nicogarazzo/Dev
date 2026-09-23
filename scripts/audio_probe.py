@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_bands():
     cfg = yaml.safe_load((ROOT / "config" / "bands.yaml").read_text()) or {}
-    bands = cfg.get("bands") or cfg
+    bands = cfg.get("trackers") or cfg.get("bands") or {}
     out = []
     for name, rng in bands.items():
         lo, hi = (rng.get("nominal_hz") or rng["hz"]) if isinstance(rng, dict) else rng
