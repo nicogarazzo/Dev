@@ -1,0 +1,29 @@
+# Mapa de hardware de luces. La fase local L2 crea config/fixtures.yaml a partir de este.
+# Todo lo marcado VERIFICAR es un supuesto hasta que L2 lo confirme.
+
+emu:
+  midi_port: "VERIFICAR"        # nombre exacto del puerto MIDI de la EMU
+  mode: note                    # VERIFICAR: note (nota = canal DMX) o cc (CC = canal DMX)
+  midi_channel_base: 1          # VERIFICAR: canal MIDI 1 -> DMX 1-128, canal 2 -> 129-256 ...
+  dmx_offset: 1                 # VERIFICAR: nota 0 -> DMX 1 (offset 1) o nota 1 -> DMX 1 (offset 0)
+  value_scale: 2                # velocity 0-127 x 2 = DMX 0-254
+
+# Perfiles de luz (canales relativos a la direccion DMX de inicio de cada luz)
+profiles:
+  par_rgbw_8ch:                 # VERIFICAR con el manual o el menu de la luz
+    channels: 8
+    dimmer: 1
+    red: 2
+    green: 3
+    blue: 4
+    white: 5
+    strobe: 6
+    mode: 7                     # dejar en 0 para control manual
+    speed: 8
+
+# Luces instaladas. group decide que bandas les afectan (ver config/show.example.yaml)
+fixtures:
+  - { name: par_1, profile: par_rgbw_8ch, address: 1,  group: front }
+  - { name: par_2, profile: par_rgbw_8ch, address: 9,  group: front }
+  - { name: par_3, profile: par_rgbw_8ch, address: 17, group: back }
+  - { name: par_4, profile: par_rgbw_8ch, address: 25, group: back }

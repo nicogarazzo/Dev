@@ -1,0 +1,26 @@
+[project]
+name = "avi"
+version = "0.0.1"
+description = "Cerebro autonomo que coordina luces DMX (via MIDI) y visuales (TouchDesigner / Resolume) segun la musica."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "mido>=1.3",
+    "python-rtmidi>=1.5",
+    "python-osc>=1.8",
+    "sounddevice>=0.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["avi*"]

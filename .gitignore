@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+# Audio y renders locales
+*.wav
+*.mp3
+out/
+# Backups automaticos de TouchDesigner
+touchdesigner/Backup/
+*.toe.bak

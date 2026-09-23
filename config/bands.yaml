@@ -1,0 +1,18 @@
+# Bandas de frecuencia que analiza el cerebro (F1).
+# hz: [desde, hasta]. onset: si detecta golpes en esta banda.
+sample_rate: 48000
+block_size: 512        # ~11 ms por bloque a 48 kHz
+fft_size: 2048
+
+bands:
+  sub:     { hz: [20, 60],      onset: false, instrument: "808 / sub-bass" }
+  kick:    { hz: [60, 150],     onset: true,  instrument: "bombo" }
+  lowmid:  { hz: [150, 400],    onset: false, instrument: "bajo / cuerpo" }
+  mid:     { hz: [400, 2000],   onset: false, instrument: "voces / synths" }
+  highmid: { hz: [2000, 6000],  onset: true,  instrument: "snare / clap" }
+  high:    { hz: [6000, 16000], onset: true,  instrument: "hats / platos" }
+
+# Suavizado de la energia (0 = sin suavizar, 1 = congelado)
+smoothing:
+  attack: 0.2
+  release: 0.85
