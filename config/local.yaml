@@ -7,8 +7,15 @@ python: "3.11.15 (.venv en la raíz del repo)"
 # dispositivo de salida múltiple que incluya VB-Cable.
 audio_input: "VB-Cable"
 
-# La EMU no estaba conectada por USB al momento de la detección.
-emu_midi_port: null           # VERIFICAR en L2 con la EMU conectada
+# "EMU" es el software gratuito de ENTTEC; el hardware es una interfaz ENTTEC (ver
+# docs/hardware/emu_y_luces.md). AVI manda DMX directo, sin pasar por EMU.
+# No estaba conectada al momento de la detección.
+dmx:
+  backend: null               # VERIFICAR en L2: enttec_pro (USB Pro por serie) o artnet
+  serial_port: null           # ej. /dev/tty.usbserial-EN123456 (python scripts/dmx_probe.py --list)
+  host: 255.255.255.255       # solo para artnet
+  universe: 0
+emu_midi_port: null           # solo si resultara ser una caja MIDI->DMX de otra marca
 
 # El IAC Driver ya está activo con dos buses; se usan tal cual en vez de renombrarlos.
 midi_out_virtual: "Driver IAC Bus 1"   # AVI Out: espejo MIDI hacia TouchDesigner / rekordbox
