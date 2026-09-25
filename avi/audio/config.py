@@ -66,6 +66,7 @@ class AnalyzerConfig:
     onset_threshold_k: float = 1.5
     onset_relative_min: float = 0.2
     onset_min_interval_s: float = 0.08
+    onset_min_percussive_share: float = 0.3
     # tempo
     bpm_range: tuple[float, float] = (70.0, 180.0)
     prior_bpm: float = 120.0
@@ -118,6 +119,7 @@ class AnalyzerConfig:
             onset_threshold_k=on.get("threshold_k"),
             onset_relative_min=on.get("relative_min"),
             onset_min_interval_s=on.get("min_interval_s"),
+            onset_min_percussive_share=on.get("min_percussive_share"),
             bpm_range=tuple(tp["bpm_range"]) if "bpm_range" in tp else None,
             prior_bpm=tp.get("prior_bpm"),
             tempo_window_s=tp.get("window_s"),

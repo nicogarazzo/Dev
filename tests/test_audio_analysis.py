@@ -136,7 +136,7 @@ def test_frame_dict_matches_showstate_instrument_schema(full_mix):
     for inst in d["instruments"].values():
         assert set(inst) == {"level", "onset", "hz", "confidence"}
         assert 0.0 <= inst["level"] <= 1.0 and 0.0 <= inst["confidence"] <= 1.0
-    for key in ("t", "bpm", "beat", "bar", "is_beat", "energy", "energy_long", "brightness"):
+    for key in ("t", "bpm", "beat", "bar", "is_beat", "phrase_pos", "energy", "energy_long", "brightness"):
         assert key in d
     json.dumps(d)
 

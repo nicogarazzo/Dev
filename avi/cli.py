@@ -1,8 +1,9 @@
 """Linea de comandos de AVI.
 
-    avi analyze cancion.wav -o out/cancion.json   # timeline JSON + resumen
-    avi listen --device "VB-Cable"                # medidor en vivo por instrumento
-    avi demo                                      # pista sintetica -> analisis -> resumen
+    avi synth out/toy.wav --seconds 30 --bpm 126  # cancion de juguete: calm -> build -> drop
+    avi analyze cancion.wav -o out/cancion.json   # timeline JSON + resumen (--fps 30 para aligerar)
+    avi live                                      # en vivo; dispositivo de config/local.yaml (alias: listen)
+    avi demo                                      # pista con verdad conocida -> analisis -> resumen
 """
 from __future__ import annotations
 
@@ -112,12 +113,13 @@ def cmd_listen(a) -> int:
     if a.list:
         print(sd.query_devices())
         return 0
-    dev = a.device
+    dev = a.device or _default_device()
+    wanted = dev
     if dev is not None and not str(dev).isdigit():
         names = [d["name"] for d in sd.query_devices()]
-        dev = next((i for i, n in enumerate(names) if a.device.lower() in n.lower()), None)
+        dev = next((i for i, n in enumerate(names) if wanted.lower() in n.lower()), None)
         if dev is None:
-            print(f"dispositivo '{a.device}' no encontrado; usa --list", file=sys.stderr)
+            print(f"dispositivo '{wanted}' no encontrado; usa --list", file=sys.stderr)
             return 1
     elif dev is not None:
         dev = int(dev)
@@ -143,6 +145,26 @@ def cmd_listen(a) -> int:
     return 0
 
 
+def cmd_synth(a) -> int:
+    from .audio.io import write_wav
+    from .audio.synth import song
+
+    wav = write_wav(a.out, song(a.seconds, a.bpm, a.sample_rate), a.sample_rate)
+    print(f"escrito {wav}: {a.seconds} s a {a.bpm} BPM, {a.sample_rate} Hz (calm -> build -> drop)")
+    return 0
+
+
+def _default_device() -> str | None:
+    """`audio_input` de config/local.yaml (lo escribe el setup local, L1)."""
+    import yaml
+
+    local = Path("config/local.yaml")
+    try:
+        return (yaml.safe_load(local.read_text()) or {}).get("audio_input") if local.exists() else None
+    except (OSError, yaml.YAMLError):
+        return None
+
+
 def cmd_demo(a) -> int:
     from .audio.io import write_wav
     from .audio.synth import make_track
@@ -161,15 +183,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="avi", description="AVI: cerebro de luces y visuales")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    sy = sub.add_parser("synth", help="escribe una cancion de juguete en WAV (calm -> build -> drop)")
+    sy.add_argument("out")
+    sy.add_argument("--seconds", type=float, default=30.0)
+    sy.add_argument("--bpm", type=float, default=126.0)
+    sy.add_argument("--sample-rate", type=int, default=48000)
+    sy.set_defaults(func=cmd_synth)
+
     an = sub.add_parser("analyze", help="analiza un archivo y escribe un timeline JSON")
     an.add_argument("file")
-    an.add_argument("-o", "--output")
-    an.add_argument("--fps", type=float, default=30.0, help="cuadros/s del timeline (0 = todos)")
+    an.add_argument("-o", "--output", "--out", dest="output")
+    an.add_argument("--fps", type=float, default=0.0, help="cuadros/s del timeline (0 = todos, ~94/s)")
     an.add_argument("--config")
     an.set_defaults(func=cmd_analyze)
 
-    li = sub.add_parser("listen", help="analiza la entrada de audio en vivo")
-    li.add_argument("--device", help="nombre o indice (ej. VB-Cable)")
+    li = sub.add_parser("live", aliases=["listen"], help="analiza la entrada de audio en vivo")
+    li.add_argument("--device", help="nombre o indice (por defecto config/local.yaml -> audio_input)")
     li.add_argument("--list", action="store_true", help="lista dispositivos de audio")
     li.add_argument("--seconds", type=float, default=0, help="0 = hasta Ctrl+C")
     li.add_argument("--channels", type=int, default=2)

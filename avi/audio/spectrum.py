@@ -54,7 +54,9 @@ class CausalHPSS:
         self._hist: deque[np.ndarray] = deque(maxlen=self.frames)
 
     def push(self, mag: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if not self._hist:
+            # Antes del primer frame hubo silencio: lo que suena al arrancar es un golpe.
+            self._hist.extend(np.zeros_like(mag) for _ in range(self.frames - 1))
         self._hist.append(mag)
-        # Al arrancar la mediana usa la historia que haya (con 1 frame, todo es armonico).
         harm = np.minimum(np.median(np.stack(self._hist), axis=0), mag)
         return mag - harm, harm

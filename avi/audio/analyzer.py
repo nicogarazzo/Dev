@@ -44,6 +44,7 @@ class AudioFrame:
     bar: int
     is_beat: bool          # True en el frame donde cae el beat
     beat_phase: float      # 0..1 dentro del beat
+    phrase_pos: float      # 0..1 dentro de la frase de 16 beats
     energy: float          # 0..1, energia corta (~0.3 s) relativa al pico reciente
     energy_long: float     # 0..1, energia larga (~8 s); el cerebro compara ambas
     loudness_db: float     # dBFS del frame
@@ -59,6 +60,7 @@ class AudioFrame:
             "bar": self.bar,
             "is_beat": self.is_beat,
             "beat_phase": round(self.beat_phase, 3),
+            "phrase_pos": round(self.phrase_pos, 4),
             "energy": round(self.energy, 4),
             "energy_long": round(self.energy_long, 4),
             "loudness_db": round(self.loudness_db, 1),
@@ -125,13 +127,22 @@ class Analyzer:
         M = self.bank.separate(perc, harm)
         A = np.sqrt(np.sum(M**2, axis=1))
 
-        # Golpes: la fuerza de un transitorio es su energia percusiva enmascarada.
+        # Golpes: la fuerza de un transitorio es su energia percusiva enmascarada. Solo
+        # cuenta si lo percusivo domina su rango: el vibrato de una nota sostenida mueve
+        # un poco la parte percusiva, pero no llega a esa fraccion.
+        range_amp = np.sqrt(self.bank.window @ (mag**2)) + EPS
+        share = A / range_amp
         strength = np.where(self.bank.transient, A, 0.0)
-        hits = self.onsets.push(strength, gate=not silent) & self.bank.transient
+        hits = (self.onsets.push(strength, gate=not silent) & self.bank.transient
+                & (share >= self.cfg.onset_min_percussive_share))
         self.bank.adapt(M, perc, harm, hits, silent)
 
         # Nivel 0..1 relativo al pico reciente de cada rastreador, con ataque/relajacion.
-        self.peak = np.maximum(A, np.maximum(self.peak * self.peak_decay, self.silence_amp * 10))
+        # Para los transitorios el pico nunca baja de media amplitud de su rango, asi el
+        # temblor percusivo de un sonido sostenido no se amplifica a nivel 1.
+        floor = np.where(self.bank.transient, 0.5 * range_amp, 0.0)
+        self.peak = np.maximum.reduce([A, self.peak * self.peak_decay, floor,
+                                       np.full_like(A, self.silence_amp * 10)])
         raw = np.zeros_like(A) if silent else np.clip(A / self.peak, 0.0, 1.0)
         coef = np.where(raw > self.level, self.cfg.attack, self.cfg.release)
         self.level = coef * self.level + (1 - coef) * raw
@@ -162,7 +173,7 @@ class Analyzer:
         }
         return AudioFrame(
             t=t, instruments=instruments, bpm=self.tempo.bpm, beat=self.tempo.beat, bar=self.tempo.bar,
-            is_beat=is_beat, beat_phase=self.tempo.phase, energy=self.e_short, energy_long=self.e_long,
+            is_beat=is_beat, beat_phase=self.tempo.phase, phrase_pos=self.tempo.phrase_pos(), energy=self.e_short, energy_long=self.e_long,
             loudness_db=float(20 * np.log10(amp + EPS)), centroid_hz=centroid, brightness=bright,
         )
 

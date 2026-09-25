@@ -136,3 +136,10 @@ class TempoTracker:
         if self.next_beat is None:
             return 0.0
         return float(np.clip(1.0 - (self.next_beat - self.lead - (self.count - 1)) / self.period, 0.0, 1.0))
+
+    def phrase_pos(self, beats_per_phrase: int = 16) -> float:
+        """0..1 dentro de la frase (16 beats por defecto); el cerebro cuantiza ahi los cambios."""
+        if self.beat_count < 0:
+            return 0.0
+        pos = (self.beat_count - self.downbeat_offset) % beats_per_phrase
+        return (pos + self.phase) / beats_per_phrase

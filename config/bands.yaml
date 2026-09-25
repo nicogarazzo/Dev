@@ -42,6 +42,7 @@ onsets:
   threshold_k: 1.5        # umbral adaptativo = media + k * desviacion (ultimos ~1.5 s)
   relative_min: 0.2       # ademas, >= 20 % del pico reciente del rastreador
   min_interval_s: 0.08    # periodo refractario entre golpes del mismo rastreador
+  min_percussive_share: 0.3  # lo percusivo debe ser >= 30 % de la amplitud del rango (evita golpes por vibrato)
 
 tempo:
   bpm_range: [70, 180]
