@@ -11,4 +11,4 @@ lo use sin que copies nada a mano.
 | `L2_mapear_emu_y_luces.md` | Cuando aparezcan la interfaz ENTTEC y las luces | `config/fixtures.yaml` + `config/local.yaml → dmx:` + `docs/hardware/emu_y_luces.md` |
 | `L3` calibrar rastreadores | Después de F1 | Se escribe cuando exista el analizador y el monitor |
 | `L4` hardware en la UI + TouchDesigner + prueba integrada | Después de F3, F4 y F5 | Se escribe cuando existan patch, UI y el script de TD |
-| `L5` Resolume (opcional) | Después de L4 | Se escribe si decides usar Resolume |
+| `L5` clips propios en TD | Después de L4 | Cargar tus clips en `touchdesigner/clips/` |

@@ -1,7 +1,7 @@
 # AVI
 
 Un solo cerebro que escucha la música y dirige, de forma autónoma, las luces
-(DMX directo a tu interfaz ENTTEC) y los visuales (TouchDesigner / Resolume) con los mismos colores y el mismo pulso.
+(DMX directo a tu interfaz ENTTEC) y los visuales (TouchDesigner) con los mismos colores y el mismo pulso.
 Los filtros son adaptativos (cada instrumento se rastrea en el espectrograma) y el hardware se configura desde una UI web local.
 
 - Plan completo: [`docs/PLAN_MVP.md`](docs/PLAN_MVP.md)
@@ -12,11 +12,10 @@ Los filtros son adaptativos (cada instrumento se rastrea en el espectrograma) y 
 | `avi/audio` | Análisis adaptativo por instrumento | F1 |
 | `avi/brain` | Secciones, escenas, paleta → `ShowState` | F2 |
 | `avi/patch` | Perfiles, fixtures, grupos con delay, salidas DMX | F3 |
-| `avi/outputs` | `dmx.py` (ENTTEC USB Pro / Art-Net, hecho); ShowState → patch (luces) y OSC (TouchDesigner, Resolume) | F3 |
+| `avi/outputs` | `dmx.py` (ENTTEC USB Pro / Art-Net, hecho); ShowState → patch (luces) y OSC (TouchDesigner) | F3 |
 | `avi/ui` | UI web local: configurar, probar y monitorear hardware | F4 |
 | `avi/control` | Controlador MIDI de entrada (overrides) | F5 |
-| `touchdesigner/` | Script que construye la red de TD | F5 |
-| `resolume/` | Notas de integración con Resolume | L5 |
+| `touchdesigner/` | Script que construye la red de TD + reproductor de clips (mini Resolume) | F5 |
 | `puredata/` | Puente opcional para tu prototipo Pd | — |
 | `config/` | Rastreadores, luces y escenas (YAML); `local.yaml` = tu Mac | — |
 | `scripts/` | `dmx_probe.py`, `audio_probe.py`: sondeo de hardware y audio | L2 |

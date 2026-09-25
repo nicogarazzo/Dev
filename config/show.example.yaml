@@ -2,7 +2,6 @@
 
 outputs:
   touchdesigner: { osc_host: 127.0.0.1, osc_port: 9000 }
-  resolume:      { enabled: false, osc_host: 127.0.0.1, osc_port: 7000 }
   midi_mirror:   { enabled: true, port: "Driver IAC Bus 1" }   # en la Mac: bus IAC ya existente
 
 control:
@@ -28,11 +27,11 @@ palettes:
   fuego:   [[1.0, 0.2, 0.0], [1.0, 0.6, 0.0], [1.0, 1.0, 0.8]]
   neon:    [[1.0, 0.1, 0.4], [0.1, 0.3, 1.0], [1.0, 1.0, 1.0]]
 
-# Escenas: indice de escena en TouchDesigner + clip en Resolume + paletas permitidas
+# Escenas: indice de escena en TouchDesigner + clip propio (touchdesigner/clips/) + paletas permitidas
 scenes:
-  - { id: 0, name: ambiente, td_scene: 0, resolume_clip: 1, palettes: [frio],        sections: [calm, break] }
-  - { id: 1, name: subida,   td_scene: 1, resolume_clip: 2, palettes: [frio, neon],  sections: [build] }
-  - { id: 2, name: drop,     td_scene: 2, resolume_clip: 3, palettes: [fuego, neon], sections: [drop] }
+  - { id: 0, name: ambiente, td_scene: 0, td_clip: 1, palettes: [frio],        sections: [calm, break] }
+  - { id: 1, name: subida,   td_scene: 1, td_clip: 2, palettes: [frio, neon],  sections: [build] }
+  - { id: 2, name: drop,     td_scene: 2, td_clip: 3, palettes: [fuego, neon], sections: [drop] }
 
 rules:
   phrase_beats: 16          # cambios de escena cuantizados a frase
