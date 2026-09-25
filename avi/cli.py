@@ -4,6 +4,7 @@
     avi analyze cancion.wav -o out/cancion.json   # timeline JSON + resumen (--fps 30 para aligerar)
     avi live                                      # en vivo; dispositivo de config/local.yaml (alias: listen)
     avi demo                                      # pista con verdad conocida -> analisis -> resumen
+    avi ui                                        # pantalla TRON en el navegador (demo; --file, --live)
 """
 from __future__ import annotations
 
@@ -179,6 +180,27 @@ def cmd_demo(a) -> int:
     return 0
 
 
+def cmd_ui(a) -> int:
+    from .ui.server import export_html, serve
+
+    cfg = AnalyzerConfig.load(a.config)
+    if a.export:
+        out = export_html(a.export, cfg, file=a.file)
+        print(f"escrito {out} ({out.stat().st_size / 1e6:.1f} MB): abrelo en el navegador")
+        return 0
+    if a.live:
+        httpd = serve(a.host, a.port, "live", device=a.device or _default_device(), cfg=cfg,
+                      open_browser=not a.no_browser)
+    else:
+        httpd = serve(a.host, a.port, "file" if a.file else "demo", file=a.file, cfg=cfg,
+                      open_browser=not a.no_browser)
+    try:
+        httpd.serve_forever()
+    finally:
+        httpd.server_close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="avi", description="AVI: cerebro de luces y visuales")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -212,6 +234,17 @@ def build_parser() -> argparse.ArgumentParser:
     de.add_argument("--output-dir", default="out")
     de.add_argument("--config")
     de.set_defaults(func=cmd_demo)
+
+    ui = sub.add_parser("ui", help="pantalla TRON en el navegador (demo, archivo o en vivo)")
+    ui.add_argument("--file", help="analiza y reproduce este archivo en vez de la cancion de prueba")
+    ui.add_argument("--live", action="store_true", help="en vivo desde la entrada de audio")
+    ui.add_argument("--device", help="con --live: nombre o indice (por defecto config/local.yaml)")
+    ui.add_argument("--host", default="127.0.0.1")
+    ui.add_argument("--port", type=int, default=8080)
+    ui.add_argument("--no-browser", action="store_true", help="no abrir el navegador")
+    ui.add_argument("--export", metavar="HTML", help="escribe un HTML autocontenido y sale")
+    ui.add_argument("--config")
+    ui.set_defaults(func=cmd_ui)
     return p
 
 
