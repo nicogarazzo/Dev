@@ -1,8 +1,9 @@
 """Linea de comandos de AVI.
 
-    avi synth out.wav --seconds 30 --bpm 126     # cancion de juguete (calm -> build -> drop)
-    avi analyze cancion.wav --out timeline.json  # analiza offline y guarda un frame por espectro
-    avi live --device "VB-Cable"                 # analiza el loopback y muestra niveles en vivo
+    avi synth out/toy.wav --seconds 30 --bpm 126  # cancion de juguete: calm -> build -> drop
+    avi analyze cancion.wav -o out/cancion.json   # timeline JSON + resumen (--fps 30 para aligerar)
+    avi live                                      # en vivo; dispositivo de config/local.yaml (alias: listen)
+    avi demo                                      # pista con verdad conocida -> analisis -> resumen
 """
 from __future__ import annotations
 
@@ -14,107 +15,213 @@ from pathlib import Path
 
 import numpy as np
 
-from avi.audio import Analyzer, analyze_signal, load_config, summarize
-from avi.audio.synth import song
-from avi.audio.wavio import read_wav, write_wav
+from .audio import AnalyzerConfig, Analyzer, AudioFrame, analyze_array, read_audio
 
 
-def cmd_synth(a: argparse.Namespace) -> int:
-    data = song(a.seconds, a.bpm, a.sample_rate)
-    write_wav(a.out, data, a.sample_rate)
-    print(f"escrito {a.out}: {a.seconds}s a {a.bpm} BPM, {a.sample_rate} Hz")
-    return 0
+def decimate(frames: list[AudioFrame], fps: float) -> list[dict]:
+    """Reduce a `fps` cuadros/s: nivel = maximo del grupo, golpes y beats = cualquiera."""
+    if not fps:
+        return [f.to_dict() for f in frames]
+    groups: dict[int, list[AudioFrame]] = {}
+    for f in frames:
+        groups.setdefault(int(f.t * fps), []).append(f)
+    out = []
+    for group in groups.values():
+        d = group[-1].to_dict()
+        d["is_beat"] = any(f.is_beat for f in group)
+        for name, inst in d["instruments"].items():
+            inst["level"] = round(max(f.instruments[name].level for f in group), 4)
+            inst["onset"] = any(f.instruments[name].onset for f in group)
+        out.append(d)
+    return out
 
 
-def cmd_analyze(a: argparse.Namespace) -> int:
-    samples, sr = read_wav(a.wav)
-    cfg = load_config(a.config)
-    frames = analyze_signal(samples, sr, cfg, block_size=int(cfg.get("block_size", 512)))
+def summarize(frames: list[AudioFrame]) -> dict:
+    if not frames:
+        return {"duration_s": 0.0}
+    names = list(frames[0].instruments)
+    bpms = [f.bpm for f in frames[len(frames) // 2:] if f.bpm]
+    last = frames[-1]
+    return {
+        "duration_s": round(last.t, 2),
+        "bpm": round(float(np.median(bpms)), 2) if bpms else None,
+        "beats": sum(f.is_beat for f in frames),
+        "instruments": {
+            n: {
+                "onsets": sum(f.instruments[n].onset for f in frames),
+                "mean_level": round(float(np.mean([f.instruments[n].level for f in frames])), 3),
+                "final_hz": [int(round(x)) for x in last.instruments[n].hz],
+                "final_confidence": round(last.instruments[n].confidence, 2),
+            }
+            for n in names
+        },
+    }
+
+
+def print_summary(s: dict, out=None) -> None:
+    out = out or sys.stdout
+    print(f"duracion {s['duration_s']} s · BPM {s.get('bpm')} · beats {s.get('beats')}", file=out)
+    for n, d in s.get("instruments", {}).items():
+        print(f"  {n:6s} golpes {d['onsets']:4d}  nivel medio {d['mean_level']:.2f}  "
+              f"rango {d['final_hz'][0]}-{d['final_hz'][1]} Hz  confianza {d['final_confidence']:.2f}", file=out)
+
+
+def cmd_analyze(a) -> int:
+    cfg = AnalyzerConfig.load(a.config)
+    audio, sr = read_audio(a.file)
+    t0 = time.time()
+    frames = analyze_array(audio, sr, cfg)
+    frame_rate = sr / cfg.hop_size
     summary = summarize(frames)
-    if a.out:
-        payload = {"source": str(a.wav), "sample_rate": sr, "summary": summary,
-                   "frames": [f.as_dict() for f in frames]}
-        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(a.out).write_text(json.dumps(payload, ensure_ascii=False, indent=None))
-        print(f"timeline: {a.out} ({len(frames)} frames)")
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    timeline = {
+        "source": str(a.file),
+        "sample_rate": sr,
+        "frame_rate": round(frame_rate, 3),
+        "fps": a.fps,
+        "summary": summary,
+        "frames": decimate(frames, a.fps),
+    }
+    out = Path(a.output) if a.output else Path("out") / (Path(a.file).stem + ".json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(timeline))
+    print_summary(summary)
+    print(f"timeline -> {out}  ({len(timeline['frames'])} cuadros, {time.time() - t0:.1f} s de calculo)")
     return 0
 
 
-def _bar(x: float, width: int = 20) -> str:
-    n = int(max(0.0, min(1.0, x)) * width)
+def _bar(v: float, width: int = 8) -> str:
+    n = int(round(max(0.0, min(1.0, v)) * width))
     return "#" * n + "." * (width - n)
 
 
-def cmd_live(a: argparse.Namespace) -> int:
+def render_line(f: AudioFrame) -> str:
+    parts = []
+    for name, s in f.instruments.items():
+        mark = "*" if s.onset else " "
+        parts.append(f"{name}{mark}{_bar(s.level)}")
+    bpm = f"{f.bpm:5.1f}" if f.bpm else "  ---"
+    beat = "o" if f.is_beat else " "
+    return f"BPM {bpm} {f.beat}{beat} | " + " ".join(parts)
+
+
+def cmd_listen(a) -> int:
     try:
         import sounddevice as sd
     except ImportError:
-        print("falta sounddevice: pip install sounddevice", file=sys.stderr)
-        return 2
-    cfg = load_config(a.config)
-    sr = int(cfg.get("sample_rate", 48000))
-    block = int(cfg.get("block_size", 512))
-    analyzer = Analyzer(cfg, sr)
-    names = analyzer.bank.names
-    last_print = [0.0]
+        print("Falta sounddevice: pip install sounddevice", file=sys.stderr)
+        return 1
+    if a.list:
+        print(sd.query_devices())
+        return 0
+    dev = a.device or _default_device()
+    wanted = dev
+    if dev is not None and not str(dev).isdigit():
+        names = [d["name"] for d in sd.query_devices()]
+        dev = next((i for i, n in enumerate(names) if wanted.lower() in n.lower()), None)
+        if dev is None:
+            print(f"dispositivo '{wanted}' no encontrado; usa --list", file=sys.stderr)
+            return 1
+    elif dev is not None:
+        dev = int(dev)
+    cfg = AnalyzerConfig.load(a.config)
+    an = Analyzer(cfg, cfg.sample_rate)
+    state = {"last": None}
 
-    def callback(indata, frames, time_info, status):
-        for frame in analyzer.process(indata[:, 0]):
-            pass
-        now = time.monotonic()
-        if analyzer.last and now - last_print[0] > a.interval:
-            last_print[0] = now
-            f = analyzer.last
-            cols = [f"{n:>5} {_bar(f.instruments[n].level, 12)}{'*' if f.instruments[n].onset else ' '}" for n in names]
-            hz = " ".join(f"{n}:{int(f.instruments[n].hz[0])}-{int(f.instruments[n].hz[1])}" for n in names)
-            sys.stdout.write("\r" + f"bpm {f.bpm:6.1f} bar {f.bar:3d} beat {f.beat} | " + " ".join(cols) + " | " + hz + "   ")
-            sys.stdout.flush()
+    def cb(indata, frames, t, status):
+        for fr in an.process(indata.mean(axis=1)):
+            if a.json:
+                sys.stdout.write(json.dumps(fr.to_dict()) + "\n")
+            state["last"] = fr
 
-    device = a.device
-    if device is None:
-        try:
-            local = Path("config/local.yaml")
-            if local.exists():
-                import yaml
-                device = (yaml.safe_load(local.read_text()) or {}).get("audio_input")
-        except Exception:
-            device = None
-    print(f"escuchando {device or 'entrada por defecto'} a {sr} Hz (Ctrl+C para salir)")
-    with sd.InputStream(device=device, channels=1, samplerate=sr, blocksize=block, dtype="float32", callback=callback):
-        try:
-            while True:
-                time.sleep(0.5)
-        except KeyboardInterrupt:
-            print()
+    with sd.InputStream(device=dev, channels=a.channels, samplerate=cfg.sample_rate,
+                        blocksize=cfg.hop_size, callback=cb):
+        t_end = time.time() + a.seconds if a.seconds else None
+        while t_end is None or time.time() < t_end:
+            time.sleep(0.05)
+            if not a.json and state["last"] is not None:
+                sys.stdout.write("\r" + render_line(state["last"])[:160])
+                sys.stdout.flush()
+    print()
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="avi", description="AVI: cerebro audio -> luces + visuales")
+def cmd_synth(a) -> int:
+    from .audio.io import write_wav
+    from .audio.synth import song
+
+    wav = write_wav(a.out, song(a.seconds, a.bpm, a.sample_rate), a.sample_rate)
+    print(f"escrito {wav}: {a.seconds} s a {a.bpm} BPM, {a.sample_rate} Hz (calm -> build -> drop)")
+    return 0
+
+
+def _default_device() -> str | None:
+    """`audio_input` de config/local.yaml (lo escribe el setup local, L1)."""
+    import yaml
+
+    local = Path("config/local.yaml")
+    try:
+        return (yaml.safe_load(local.read_text()) or {}).get("audio_input") if local.exists() else None
+    except (OSError, yaml.YAMLError):
+        return None
+
+
+def cmd_demo(a) -> int:
+    from .audio.io import write_wav
+    from .audio.synth import make_track
+
+    tr = make_track(bpm=a.bpm, seconds=a.seconds, parts=("kick", "bass", "snare", "hats", "pad"))
+    wav = write_wav(Path(a.output_dir) / "demo.wav", tr.audio, tr.sample_rate)
+    print(f"pista sintetica: {wav}  ({a.bpm} BPM, bombo + bajo superpuestos, snare, hats, pad)")
+    ns = argparse.Namespace(file=wav, output=Path(a.output_dir) / "demo.json", fps=30.0, config=a.config)
+    cmd_analyze(ns)
+    print(f"esperado: BPM {a.bpm}, golpes de bombo {len(tr.onsets['kick'])}, "
+          f"snare {len(tr.onsets['snare'])}, hats {len(tr.onsets['hats'])}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="avi", description="AVI: cerebro de luces y visuales")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("synth", help="genera una cancion de juguete en WAV")
-    s.add_argument("out")
-    s.add_argument("--seconds", type=float, default=30.0)
-    s.add_argument("--bpm", type=float, default=126.0)
-    s.add_argument("--sample-rate", type=int, default=48000)
-    s.set_defaults(func=cmd_synth)
+    sy = sub.add_parser("synth", help="escribe una cancion de juguete en WAV (calm -> build -> drop)")
+    sy.add_argument("out")
+    sy.add_argument("--seconds", type=float, default=30.0)
+    sy.add_argument("--bpm", type=float, default=126.0)
+    sy.add_argument("--sample-rate", type=int, default=48000)
+    sy.set_defaults(func=cmd_synth)
 
-    an = sub.add_parser("analyze", help="analiza un WAV offline")
-    an.add_argument("wav")
-    an.add_argument("--out", help="timeline JSON (un frame por espectro)")
-    an.add_argument("--config", default=None, help="config/bands.yaml alternativo")
+    an = sub.add_parser("analyze", help="analiza un archivo y escribe un timeline JSON")
+    an.add_argument("file")
+    an.add_argument("-o", "--output", "--out", dest="output")
+    an.add_argument("--fps", type=float, default=0.0, help="cuadros/s del timeline (0 = todos, ~94/s)")
+    an.add_argument("--config")
     an.set_defaults(func=cmd_analyze)
 
-    lv = sub.add_parser("live", help="analiza la entrada de audio en vivo")
-    lv.add_argument("--device", default=None, help="nombre del dispositivo (por defecto config/local.yaml -> audio_input)")
-    lv.add_argument("--config", default=None)
-    lv.add_argument("--interval", type=float, default=0.1)
-    lv.set_defaults(func=cmd_live)
+    li = sub.add_parser("live", aliases=["listen"], help="analiza la entrada de audio en vivo")
+    li.add_argument("--device", help="nombre o indice (por defecto config/local.yaml -> audio_input)")
+    li.add_argument("--list", action="store_true", help="lista dispositivos de audio")
+    li.add_argument("--seconds", type=float, default=0, help="0 = hasta Ctrl+C")
+    li.add_argument("--channels", type=int, default=2)
+    li.add_argument("--json", action="store_true", help="imprime un JSON por frame")
+    li.add_argument("--config")
+    li.set_defaults(func=cmd_listen)
 
-    a = p.parse_args(argv)
-    return a.func(a)
+    de = sub.add_parser("demo", help="genera una pista sintetica y la analiza")
+    de.add_argument("--bpm", type=float, default=128.0)
+    de.add_argument("--seconds", type=float, default=20.0)
+    de.add_argument("--output-dir", default="out")
+    de.add_argument("--config")
+    de.set_defaults(func=cmd_demo)
+    return p
+
+
+def main(argv=None) -> int:
+    a = build_parser().parse_args(argv)
+    try:
+        return a.func(a)
+    except KeyboardInterrupt:
+        print()
+        return 0
 
 
 if __name__ == "__main__":

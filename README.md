@@ -9,7 +9,7 @@ Los filtros son adaptativos (cada instrumento se rastrea en el espectrograma) y 
 
 | Carpeta | Qué va ahí | Fase |
 |---|---|---|
-| `avi/audio` | Análisis adaptativo por instrumento (hecho) | F1 |
+| `avi/audio` | Análisis adaptativo por instrumento (hecho, ver `docs/F1_ANALISIS.md`) | F1 |
 | `avi/brain` | Secciones, escenas, paleta → `ShowState` | F2 |
 | `avi/patch` | Perfiles, fixtures, grupos con delay, salidas DMX | F3 |
 | `avi/outputs` | `dmx.py` (ENTTEC USB Pro / Art-Net, hecho); ShowState → patch (luces) y OSC (TouchDesigner) | F3 |
@@ -28,8 +28,10 @@ pytest
 
 avi synth out/toy.wav --seconds 30 --bpm 126   # cancion de juguete: calm -> build -> drop
 avi analyze out/toy.wav --out out/timeline.json # un frame por espectro: niveles, golpes, BPM, rango de cada rastreador
-avi live --device "VB-Cable"                    # lo mismo en vivo sobre el loopback (config/local.yaml)
+avi live                                        # lo mismo en vivo sobre el loopback (config/local.yaml)
+avi demo                                        # pista con verdad conocida -> analisis -> resumen
 ```
 
-Cada frame del analizador (`AnalysisFrame`) trae, por instrumento, `level` 0-1, `onset`, el rango `hz`
-que el rastreador esta capturando ahora y su `confidence`, mas `bpm`, `beat`, `bar` y `phrase_pos`.
+Cada frame del analizador (`AudioFrame`) trae, por instrumento, `level` 0-1, `onset`, el rango `hz`
+que el rastreador esta capturando ahora y su `confidence`, mas `bpm`, `beat`, `bar`, `is_beat`, `phrase_pos`,
+`energy`/`energy_long` y `brightness`.
