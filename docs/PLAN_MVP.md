@@ -2,8 +2,8 @@
 
 **AVI** = un solo "cerebro" que escucha la música, rastrea cada instrumento en el
 espectro de forma adaptativa y decide, autónomamente, qué hacen las luces
-(DMX directo a tu interfaz ENTTEC) y qué hacen los visuales (TouchDesigner, y
-opcionalmente Resolume Arena, que ya tienes), con los mismos colores y el mismo pulso.
+(DMX directo a tu interfaz ENTTEC) y qué hacen los visuales (TouchDesigner, con su
+propio conmutador de clips: nuestro "mini Resolume"), con los mismos colores y el mismo pulso.
 
 > Versión 3 (2026-09-23). Cambio respecto a v2: "EMU" resultó ser el **software**
 > gratuito de ENTTEC, no una caja MIDI → DMX. AVI manda DMX directo al hardware ENTTEC
@@ -43,7 +43,7 @@ Latencia objetivo audio → luz: **< 50 ms** percibidos.
 | Salida a luces | **DMX directo** desde Python a la interfaz ENTTEC: `enttec_pro` (DMX USB Pro por USB) o `artnet` (nodo de red) | EMU es software; su control MIDI es de pago y solo dispara escenas guardadas. DMX directo da los 256 valores por canal y ~40 cuadros/s. Ya implementado con tests en `avi/outputs/dmx.py` (PR #3). |
 | Software EMU | **Auxiliar**: monitor DMX/Art-Net, editor de fixtures (importa GDTF), plan B con su Sound Tracker | Gratis y ya lo tienes; no está en el camino crítico. |
 | Salida a TouchDesigner | **OSC** (+ MIDI espejo) | OSC lleva floats 0–1 con nombre, más preciso que MIDI (0–127). El MIDI espejo queda para rekordbox / software de VJ. |
-| Resolume | **Opcional en L5**; ya tienes Arena 7.10 | TouchDesigner conmuta escenas solo; Resolume entra cuando quieras mezclar clips propios. |
+| Resolume | **Fuera del proyecto** | Arena está instalado pero sin licencia y no hay Resolume libre. TouchDesigner hace el trabajo: en F5 el script de TD incluye un conmutador de escenas y un reproductor de clips propios (nuestro "mini Resolume"). |
 | Red de TouchDesigner | Generada por **script Python** que corres dentro de TD | Un `.toe` es binario; un script se versiona y se escribe en cloud. |
 
 ---
@@ -60,14 +60,12 @@ flowchart LR
   P -->|DMX USB Pro o Art-Net| E[Interfaz ENTTEC] -->|DMX512| L[Luces]
   EMU[Software EMU - monitor y editor de fixtures] -. observa .-> E
   C -->|OSC| T[TouchDesigner]
-  C -->|OSC| R[Resolume Arena - opcional]
-  T -->|Syphon| R
   U[UI web local: configurar, probar, monitorear] <--> P
   U <--> B
 ```
 
 **La clave del "un solo cerebro":** cada ~10 ms el cerebro produce un único
-`ShowState`. Luces, TouchDesigner y Resolume solo *traducen* ese estado; ninguno
+`ShowState`. Luces y TouchDesigner solo *traducen* ese estado; ninguno
 decide nada por su cuenta. Así es imposible que se desincronicen los colores.
 
 ```json
@@ -93,13 +91,14 @@ Módulos (una carpeta por fase, ver `avi/`):
 
 | Módulo | Hace | Fase |
 |---|---|---|
-| `avi/audio` | Captura, espectrograma, rastreadores adaptativos, onsets, BPM | F1 |
+| `avi/audio` | **hecho**: espectrograma, rastreadores adaptativos, onsets, BPM (`Analyzer.process(bloque) → AnalysisFrame`) | F1 |
 | `avi/brain` | Detecta sección, elige escena y paleta, produce `ShowState` | F2 |
 | `avi/patch` | Perfiles de luces, fixtures, grupos con delay → valores por canal | F3 |
-| `avi/outputs` | `dmx.py` (**hecho**: `EnttecProBackend`, `ArtNetBackend`, `NullBackend`); `ShowState` → patch → DMX; `ShowState` → OSC (TD, Resolume) | F3 |
+| `avi/outputs` | `dmx.py` (**hecho**: `EnttecProBackend`, `ArtNetBackend`, `NullBackend`); `ShowState` → patch → DMX; `ShowState` → OSC (TD) | F3 |
 | `avi/ui` | UI web local para configurar hardware, probar canales y monitorear | F4 |
 | `avi/control` | Controlador MIDI de entrada → overrides | F5 |
-| `touchdesigner/` | Script que construye la red de TD | F5 |
+| `touchdesigner/` | Script que construye la red de TD (escenas + reproductor de clips) | F5 |
+| `avi/cli.py` | **hecho**: `avi synth`, `avi analyze`, `avi live` | F1 |
 | `scripts/` | **hecho**: `dmx_probe.py` (barrido de canales), `audio_probe.py` (bandas del loopback) | L1/L2 |
 
 ---
@@ -226,10 +225,7 @@ Cuál de los dos usa tu interfaz se confirma en L2 con `python scripts/dmx_probe
 | `/avi/color/{1,2,3}` | float r g b | 0–1 |
 | `/avi/scene` | int | 0..N-1 |
 | `/avi/section` | string | calm/build/drop/break |
-
-**OSC → Resolume Arena** (UDP `127.0.0.1:7000`, opcional)
-- `/composition/layers/1/clips/{n}/connect 1` para lanzar clip por escena.
-- Direcciones exactas a verificar en Arena (Shortcuts → Edit OSC) en la fase L5.
+| `/avi/clip` | int | índice de clip propio en TD (mini Resolume) |
 
 **MIDI espejo** (puerto virtual `Driver IAC Bus 1`, para TD / rekordbox)
 - Canal 1, CC 1–6 = instrumentos; notas 36–41 = onsets; Program Change = escena.
@@ -248,23 +244,23 @@ respaldo para tu LLM local.
 ### Bloque A — Arranque
 1. **Cloud · F0** — Plan + esqueleto + configs de ejemplo. **Hecho** (PR #2, v3 en este PR).
 2. **Local · L1** — Entorno en tu Mac. **Hecho** (PR #3): Python 3.11, VB-Cable como
-   loopback, buses IAC 1 y 2 como puertos MIDI, Pd 0.52, rekordbox 6, Resolume Arena 7.10,
+   loopback, buses IAC 1 y 2 como puertos MIDI, Pd 0.52, rekordbox 6, Arena sin licencia (no se usa),
    TouchDesigner instalándose. Todo en `config/local.yaml`.
 3. **Local · L2** — Identificar la interfaz ENTTEC (`dmx_probe.py --list`), barrer canales
    de cada luz (`--sweep`) y escribir `config/fixtures.yaml`. **Esperando** que aparezcan la
    interfaz y las luces.
 
 ### Bloque B — Cerebro (cloud)
-1. **F1 · Análisis adaptativo** — Espectrograma, rastreadores con huella espectral y máscara suave, onsets, BPM + simulador offline (`avi analyze cancion.wav` → timeline JSON) + tests con audio sintético (bombo y bajo superpuestos deben separarse).
+1. **F1 · Análisis adaptativo** — **Hecho** (PR F1): `avi/audio/` con espectrograma, rastreadores con huella espectral y máscara suave, onsets por instrumento, BPM/compás; `avi synth` (canción de juguete), `avi analyze` (timeline JSON) y `avi live` (loopback). 11 tests: bombo y bajo superpuestos se separan, el bajo a 90 Hz baja el rango del rastreador, BPM 126 ± 3.
 2. **F2 · Cerebro** — Secciones, escenas, paleta, `ShowState` + tests.
-3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay sobre `dmx.py` (ya hecho), OSC a TD y Resolume, modo `--dry-run` con `NullBackend`.
+3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay sobre `dmx.py` (ya hecho), OSC a TD, modo `--dry-run` con `NullBackend`.
 4. **F4 · UI web de hardware** — Dispositivos, perfiles (importa Open Fixture Library), patch, probar/identificar, monitor en vivo. Testeada en cloud con `NullBackend`.
-5. **F5 · Control + TouchDesigner** — Controlador MIDI de entrada con overrides, y script que construye la red de TD: OSC In → 3 escenas → Switch.
+5. **F5 · Control + TouchDesigner** — Controlador MIDI de entrada con overrides, y script que construye la red de TD: OSC In → 3 escenas generativas + reproductor de clips propios (Movie File In por `/avi/clip`) → Switch. Ese reproductor es nuestro "mini Resolume".
 
 ### Bloque C — En vivo (local, en tu Mac)
 1. **L3** — Correr el analizador con una canción real desde rekordbox → VB-Cable y ver en el monitor qué captura cada rastreador; ajustar rangos de búsqueda (después de F1).
 2. **L4** — Configurar tu hardware en la UI, verificar cada luz con *Identificar*, construir la red de TD con el script y prueba integrada audio → luces + visuales (después de F3, F4 y F5).
-3. **L5** — (Opcional) Resolume Arena: recibir TD por Syphon y clips por OSC.
+3. **L5** — Cargar tus clips propios en la carpeta `touchdesigner/clips/` y asignarlos a escenas en `config/show.yaml`.
 
 Cada fase cloud = 1 PR con tests verdes. Cada fase local termina con push a una rama
 `local/...` para que la siguiente fase cloud lo tome sin que copies nada a mano.

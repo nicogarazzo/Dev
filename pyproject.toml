@@ -1,7 +1,7 @@
 [project]
 name = "avi"
 version = "0.0.1"
-description = "Cerebro autonomo que coordina luces DMX (ENTTEC directo) y visuales (TouchDesigner / Resolume) segun la musica."
+description = "Cerebro autonomo que coordina luces DMX (ENTTEC directo) y visuales (TouchDesigner) segun la musica."
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
@@ -12,6 +12,9 @@ dependencies = [
     "sounddevice>=0.4",
     "pyserial>=3.5",
 ]
+
+[project.scripts]
+avi = "avi.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
