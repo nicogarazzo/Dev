@@ -255,7 +255,7 @@ respaldo para tu LLM local.
    interfaz y las luces.
 
 ### Bloque B — Cerebro (cloud)
-1. **F1 · Análisis adaptativo** — Espectrograma, rastreadores con huella espectral y máscara suave, onsets, BPM + simulador offline (`avi analyze cancion.wav` → timeline JSON) + tests con audio sintético (bombo y bajo superpuestos deben separarse).
+1. **F1 · Análisis adaptativo** — **En PR** (ver `docs/F1_ANALISIS.md`). Espectrograma, rastreadores con huella espectral y máscara suave, onsets, BPM + simulador offline (`avi analyze cancion.wav` → timeline JSON) + tests con audio sintético (bombo y bajo superpuestos deben separarse).
 2. **F2 · Cerebro** — Secciones, escenas, paleta, `ShowState` + tests.
 3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay sobre `dmx.py` (ya hecho), OSC a TD y Resolume, modo `--dry-run` con `NullBackend`.
 4. **F4 · UI web de hardware** — Dispositivos, perfiles (importa Open Fixture Library), patch, probar/identificar, monitor en vivo. Testeada en cloud con `NullBackend`.

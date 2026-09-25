@@ -17,6 +17,9 @@ dependencies = [
 dev = ["pytest>=8"]
 ui = ["fastapi>=0.110", "uvicorn>=0.29"]
 
+[project.scripts]
+avi = "avi.cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
