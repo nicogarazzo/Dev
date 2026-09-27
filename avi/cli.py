@@ -3,7 +3,10 @@
     avi synth out/toy.wav --seconds 30 --bpm 126  # cancion de juguete: calm -> build -> drop
     avi analyze cancion.wav -o out/cancion.json   # timeline JSON + resumen (--fps 30 para aligerar)
     avi live                                      # en vivo; dispositivo de config/local.yaml (alias: listen)
+    avi live --brain                              # en vivo + cerebro: seccion, escena y paleta
     avi demo                                      # pista con verdad conocida -> analisis -> resumen
+    avi synth out/show.wav --sections             # cancion calm -> build -> drop -> break -> drop
+    avi show out/show.wav                         # analisis + cerebro -> timeline de ShowState (F2)
     avi ui                                        # pantalla TRON en el navegador (demo; --file, --live)
 """
 from __future__ import annotations
@@ -126,13 +129,18 @@ def cmd_listen(a) -> int:
         dev = int(dev)
     cfg = AnalyzerConfig.load(a.config)
     an = Analyzer(cfg, cfg.sample_rate)
-    state = {"last": None}
+    brain = None
+    if a.brain:
+        from .brain import Brain, ShowConfig
+        brain = Brain(ShowConfig.load(a.show))
+    state = {"last": None, "show": None}
 
     def cb(indata, frames, t, status):
         for fr in an.process(indata.mean(axis=1)):
+            st = brain.update(fr) if brain else None
             if a.json:
-                sys.stdout.write(json.dumps(fr.to_dict()) + "\n")
-            state["last"] = fr
+                sys.stdout.write(json.dumps((st or fr).to_dict()) + "\n")
+            state["last"], state["show"] = fr, st
 
     with sd.InputStream(device=dev, channels=a.channels, samplerate=cfg.sample_rate,
                         blocksize=cfg.hop_size, callback=cb):
@@ -140,7 +148,11 @@ def cmd_listen(a) -> int:
         while t_end is None or time.time() < t_end:
             time.sleep(0.05)
             if not a.json and state["last"] is not None:
-                sys.stdout.write("\r" + render_line(state["last"])[:160])
+                line = render_line(state["last"])
+                if state["show"] is not None:
+                    st = state["show"]
+                    line = f"{st.section:5s} esc {st.scene} {st.palette_name:6s} | " + line
+                sys.stdout.write("\r" + line[:180])
                 sys.stdout.flush()
     print()
     return 0
@@ -148,10 +160,72 @@ def cmd_listen(a) -> int:
 
 def cmd_synth(a) -> int:
     from .audio.io import write_wav
-    from .audio.synth import song
+    from .audio.synth import arrangement, song
 
+    if a.sections:
+        audio, truth = arrangement(bpm=a.bpm, sr=a.sample_rate)
+        wav = write_wav(a.out, audio, a.sample_rate)
+        print(f"escrito {wav}: {len(audio) / a.sample_rate:.1f} s a {a.bpm} BPM, {a.sample_rate} Hz")
+        for s in truth:
+            print(f"  {s['start']:6.1f}-{s['end']:6.1f} s  {s['name']}")
+        return 0
     wav = write_wav(a.out, song(a.seconds, a.bpm, a.sample_rate), a.sample_rate)
     print(f"escrito {wav}: {a.seconds} s a {a.bpm} BPM, {a.sample_rate} Hz (calm -> build -> drop)")
+    return 0
+
+
+def decimate_states(states, fps: float) -> list[dict]:
+    """Como `decimate`, para ShowState: el ultimo estado del grupo, con golpes, beats y
+    cambios de cualquiera de sus frames."""
+    if not fps:
+        return [s.to_dict() for s in states]
+    groups: dict[int, list] = {}
+    for s in states:
+        groups.setdefault(int(s.t * fps), []).append(s)
+    out = []
+    for group in groups.values():
+        d = group[-1].to_dict()
+        d["is_beat"] = any(s.frame.is_beat for s in group)
+        for name, inst in d["instruments"].items():
+            inst["level"] = round(max(s.instruments[name].level for s in group), 4)
+            inst["onset"] = any(s.instruments[name].onset for s in group)
+        changes = sorted({c for s in group for c in s.changes})
+        if changes:
+            d["changes"] = changes
+        out.append(d)
+    return out
+
+
+def cmd_show(a) -> int:
+    from .brain import ShowConfig, run_brain, section_spans
+
+    cfg = AnalyzerConfig.load(a.config)
+    show = ShowConfig.load(a.show)
+    audio, sr = read_audio(a.file)
+    t0 = time.time()
+    frames = analyze_array(audio, sr, cfg)
+    states = run_brain(frames, show)
+    spans = section_spans(states)
+    changes = [{"t": round(s.t, 3), "changes": s.changes, "section": s.section, "scene": s.scene,
+                "scene_name": s.scene_name, "palette": s.palette_name} for s in states if s.changes]
+    timeline = {
+        "source": str(a.file),
+        "sample_rate": sr,
+        "fps": a.fps,
+        "summary": summarize(frames),
+        "sections": spans,
+        "changes": changes,
+        "frames": decimate_states(states, a.fps),
+    }
+    out = Path(a.output) if a.output else Path("out") / (Path(a.file).stem + ".show.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(timeline))
+    for sp in spans:
+        print(f"  {sp['start']:6.1f}-{sp['end']:6.1f} s  {sp['name']}")
+    for c in changes:
+        if "scene" in c["changes"] or "palette" in c["changes"]:
+            print(f"  {c['t']:6.1f} s  escena {c['scene']} ({c['scene_name']}), paleta {c['palette']}")
+    print(f"show -> {out}  ({len(timeline['frames'])} cuadros, {time.time() - t0:.1f} s de calculo)")
     return 0
 
 
@@ -210,6 +284,8 @@ def build_parser() -> argparse.ArgumentParser:
     sy.add_argument("--seconds", type=float, default=30.0)
     sy.add_argument("--bpm", type=float, default=126.0)
     sy.add_argument("--sample-rate", type=int, default=48000)
+    sy.add_argument("--sections", action="store_true",
+                    help="cancion de ~90 s con calm, build, drop, break y drop (ignora --seconds)")
     sy.set_defaults(func=cmd_synth)
 
     an = sub.add_parser("analyze", help="analiza un archivo y escribe un timeline JSON")
@@ -225,8 +301,18 @@ def build_parser() -> argparse.ArgumentParser:
     li.add_argument("--seconds", type=float, default=0, help="0 = hasta Ctrl+C")
     li.add_argument("--channels", type=int, default=2)
     li.add_argument("--json", action="store_true", help="imprime un JSON por frame")
+    li.add_argument("--brain", action="store_true", help="pasa cada frame por el cerebro (seccion, escena, paleta)")
+    li.add_argument("--show", help="config del show (por defecto config/show.yaml o el ejemplo)")
     li.add_argument("--config")
     li.set_defaults(func=cmd_listen)
+
+    sh = sub.add_parser("show", help="analiza un archivo, lo pasa por el cerebro y escribe un timeline de ShowState")
+    sh.add_argument("file")
+    sh.add_argument("-o", "--output", "--out", dest="output")
+    sh.add_argument("--fps", type=float, default=30.0, help="cuadros/s del timeline (0 = todos)")
+    sh.add_argument("--show", help="config del show (por defecto config/show.yaml o el ejemplo)")
+    sh.add_argument("--config")
+    sh.set_defaults(func=cmd_show)
 
     de = sub.add_parser("demo", help="genera una pista sintetica y la analiza")
     de.add_argument("--bpm", type=float, default=128.0)

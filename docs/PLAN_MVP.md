@@ -92,13 +92,13 @@ Módulos (una carpeta por fase, ver `avi/`):
 | Módulo | Hace | Fase |
 |---|---|---|
 | `avi/audio` | **hecho**: espectrograma, separación percusivo/armónico, rastreadores adaptativos, onsets, BPM (`Analyzer.process(bloque) → AudioFrame`, ver `docs/F1_ANALISIS.md`) | F1 |
-| `avi/brain` | Detecta sección, elige escena y paleta, produce `ShowState` | F2 |
+| `avi/brain` | **hecho**: detecta sección, elige escena y paleta, produce `ShowState` con intenciones por grupo y parámetros de TD (`Brain.update(frame) → ShowState`, ver `docs/F2_CEREBRO.md`) | F2 |
 | `avi/patch` | Perfiles de luces, fixtures, grupos con delay → valores por canal | F3 |
 | `avi/outputs` | `dmx.py` (**hecho**: `EnttecProBackend`, `ArtNetBackend`, `NullBackend`); `ShowState` → patch → DMX; `ShowState` → OSC (TD) | F3 |
 | `avi/ui` | UI web local para configurar hardware, probar canales y monitorear | F4 |
 | `avi/control` | Controlador MIDI de entrada → overrides | F5 |
 | `touchdesigner/` | Script que construye la red de TD (escenas + reproductor de clips) | F5 |
-| `avi/cli.py` | **hecho**: `avi synth`, `avi analyze`, `avi live`, `avi demo` | F1 |
+| `avi/cli.py` | **hecho**: `avi synth`, `avi analyze`, `avi live`, `avi demo`; `avi show` y `avi live --brain` (F2) | F1, F2 |
 | `scripts/` | **hecho**: `dmx_probe.py` (barrido de canales), `audio_probe.py` (bandas del loopback) | L1/L2 |
 
 ---
@@ -252,7 +252,7 @@ respaldo para tu LLM local.
 
 ### Bloque B — Cerebro (cloud)
 1. **F1 · Análisis adaptativo** — **Hecho** (PR #5 + PR #6, unificados): `avi/audio/` con espectrograma, separación percusivo/armónico, rastreadores con huella espectral y máscara suave, golpes por instrumento, BPM/beat/compás/frase y energía; `avi synth`, `avi analyze` (timeline JSON), `avi live` (loopback) y `avi demo`. 25 tests con dos fuentes de audio sintético. Detalle y cifras en `docs/F1_ANALISIS.md`.
-2. **F2 · Cerebro** — Secciones, escenas, paleta, `ShowState` + tests.
+2. **F2 · Cerebro** — **Hecho**: `avi/brain/` con reloj de compás, detector de secciones con histéresis, motor de escenas cuantizado a frase, paleta compartida con cruce, override (listo para F5) e intenciones por grupo de luces y parámetros de TD; `avi show` (timeline de `ShowState`) y `avi live --brain`. Detalle en `docs/F2_CEREBRO.md`.
 3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay sobre `dmx.py` (ya hecho), OSC a TD, modo `--dry-run` con `NullBackend`.
 4. **F4 · UI web de hardware** — Dispositivos, perfiles (importa Open Fixture Library), patch, probar/identificar, monitor en vivo. Testeada en cloud con `NullBackend`.
 5. **F5 · Control + TouchDesigner** — Controlador MIDI de entrada con overrides, y script que construye la red de TD: OSC In → 3 escenas generativas + reproductor de clips propios (Movie File In por `/avi/clip`) → Switch. Ese reproductor es nuestro "mini Resolume".
