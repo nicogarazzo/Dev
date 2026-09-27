@@ -37,3 +37,17 @@ rules:
   phrase_beats: 16          # cambios de escena cuantizados a frase
   min_scene_bars: 8
   section_hysteresis_bars: 2
+  palette_fade_beats: 4     # cruce de paleta al cambiar de escena (el drop entra en seco)
+  section_gain: { calm: 0.6, build: 0.75, drop: 1.0, break: 0.35 }   # techo de dimmer por seccion
+  strobe_sections: [drop]
+  # Umbrales del detector de secciones (por compas). Opcional: estos son los de fabrica.
+  # Ver docs/F2_CEREBRO.md.
+  sections:
+    kick_hits_present: 2    # golpes de bombo por compas para "hay bombo"
+    kick_hits_dense: 3      # ... para "bombo denso" (drop)
+    drop_db_from_peak: 4.0  # el drop suena a <= 4 dB del compas mas fuerte reciente
+    drop_hold_db: 8.0       # el drop se suelta si cae mas de 8 dB
+    drop_jump_db: 3.0       # salto vs los 4 compases previos: drop inmediato tras build o break
+    build_bars: 4           # ventana para medir la subida
+    build_density_slope: 0.5
+    build_db_slope: 0.6

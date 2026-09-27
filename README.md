@@ -10,7 +10,7 @@ Los filtros son adaptativos (cada instrumento se rastrea en el espectrograma) y 
 | Carpeta | Qué va ahí | Fase |
 |---|---|---|
 | `avi/audio` | Análisis adaptativo por instrumento (hecho, ver `docs/F1_ANALISIS.md`) | F1 |
-| `avi/brain` | Secciones, escenas, paleta → `ShowState` | F2 |
+| `avi/brain` | Secciones, escenas, paleta → `ShowState` (hecho, ver `docs/F2_CEREBRO.md`) | F2 |
 | `avi/patch` | Perfiles, fixtures, grupos con delay, salidas DMX | F3 |
 | `avi/outputs` | `dmx.py` (ENTTEC USB Pro / Art-Net, hecho); ShowState → patch (luces) y OSC (TouchDesigner) | F3 |
 | `avi/ui` | UI web local: configurar, probar y monitorear hardware | F4 |
@@ -30,6 +30,9 @@ avi synth out/toy.wav --seconds 30 --bpm 126   # cancion de juguete: calm -> bui
 avi analyze out/toy.wav --out out/timeline.json # un frame por espectro: niveles, golpes, BPM, rango de cada rastreador
 avi live                                        # lo mismo en vivo sobre el loopback (config/local.yaml)
 avi demo                                        # pista con verdad conocida -> analisis -> resumen
+avi synth out/show.wav --sections               # ~90 s: calm -> build -> drop -> break -> drop
+avi show out/show.wav                           # analisis + cerebro: secciones, escenas, paleta (ShowState)
+avi live --brain                                # en vivo con el cerebro
 ```
 
 Cada frame del analizador (`AudioFrame`) trae, por instrumento, `level` 0-1, `onset`, el rango `hz`

@@ -207,3 +207,56 @@ def make_track(bpm: float = 128.0, seconds: float = 16.0, sr: int = 48000,
         stems["pad"] = 0.08 * (saw(440.0, t, 4) + saw(660.0, t, 3))
     audio = sum(stems.values()) if stems else np.zeros(n)
     return SynthTrack(audio=np.asarray(audio), sample_rate=sr, bpm=bpm, onsets=onsets, stems=stems)
+
+
+# --- Arreglo por secciones (para el cerebro, F2) ---------------------------------
+
+DEFAULT_ARRANGEMENT = (("calm", 8), ("build", 8), ("drop", 16), ("break", 8), ("drop", 8))
+
+
+def arrangement(sections=DEFAULT_ARRANGEMENT, bpm: float = 126.0, sr: int = 48000,
+                seed: int = 0) -> tuple[np.ndarray, list[dict]]:
+    """Cancion de juguete con secciones de verdad conocida, en compases de 4 beats.
+
+    calm: solo pad. build: bombo suave, hats y snare cada vez mas densos y fuertes.
+    drop: todo arriba (bombo, bajo, sub, snare, hats). break: pad y hats sin bombo.
+    Devuelve (audio, [{name, start, end}] en segundos).
+    """
+    beat = 60.0 / bpm
+    total_bars = sum(b for _, b in sections)
+    n = int((total_bars * 4 * beat + 0.5) * sr)
+    canvas = np.zeros(n, dtype=np.float32)
+    k, s, h = kick(sr), snare(sr), hat(sr)
+    truth, bar0 = [], 0
+    for name, bars in sections:
+        t_start = bar0 * 4 * beat
+        truth.append({"name": name, "start": round(t_start, 3), "end": round((bar0 + bars) * 4 * beat, 3)})
+        seg = bars * 4 * beat
+        pad_hz = {"calm": 330.0, "build": 440.0, "break": 294.0}.get(name)
+        if pad_hz:
+            place(canvas, voice_tone(sr, pad_hz, seg) * (0.35 if name != "build" else 0.3), t_start, sr)
+        for b in range(bars):
+            prog = b / max(1, bars - 1)
+            for q in range(4):
+                t0 = t_start + (b * 4 + q) * beat
+                if name == "drop":
+                    place(canvas, k, t0, sr, 1.0)
+                    place(canvas, bass_note(sr, 55.0, beat * 0.9), t0 + beat * 0.02, sr, 0.8)
+                    place(canvas, sub_tone(sr, 41.0, beat), t0, sr, 0.35)
+                    place(canvas, h, t0 + beat / 2, sr, 0.5)
+                    if q % 2 == 1:
+                        place(canvas, s, t0, sr, 0.7)
+                elif name == "build":
+                    place(canvas, k, t0, sr, 0.35)
+                    hats_per_beat = 1 if prog < 0.34 else (2 if prog < 0.67 else 4)
+                    snares_per_beat = 0 if prog < 0.25 else (1 if prog < 0.6 else (2 if prog < 0.85 else 4))
+                    g = 0.15 + 0.35 * prog
+                    for i in range(hats_per_beat):
+                        place(canvas, h, t0 + beat * (i + 0.5) / hats_per_beat, sr, g)
+                    for i in range(snares_per_beat):
+                        place(canvas, s, t0 + beat * i / snares_per_beat, sr, g)
+                elif name == "break":
+                    place(canvas, h, t0 + beat / 2, sr, 0.2)
+        bar0 += bars
+    peak = np.abs(canvas).max()
+    return (canvas / peak * 0.9 if peak > 0 else canvas), truth
