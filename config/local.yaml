@@ -1,0 +1,29 @@
+# Entorno local de la Mac de Nicolás (fase L1). Detectado automáticamente el 2026-09-23.
+os: macos 26.6.2 (arm64)
+python: "3.11.15 (.venv en la raíz del repo)"
+
+# Loopback de audio: VB-Cable ya estaba instalado, se usa en vez de BlackHole.
+# Para que AVI escuche, la salida del sistema (o de rekordbox) debe ir a un
+# dispositivo de salida múltiple que incluya VB-Cable.
+audio_input: "VB-Cable"
+
+# "EMU" es el software gratuito de ENTTEC; el hardware es una interfaz ENTTEC (ver
+# docs/hardware/emu_y_luces.md). AVI manda DMX directo, sin pasar por EMU.
+# No estaba conectada al momento de la detección.
+dmx:
+  backend: null               # VERIFICAR en L2: enttec_pro (USB Pro por serie) o artnet
+  serial_port: null           # ej. /dev/tty.usbserial-EN123456 (python scripts/dmx_probe.py --list)
+  host: 255.255.255.255       # solo para artnet
+  universe: 0
+emu_midi_port: null           # solo si resultara ser una caja MIDI->DMX de otra marca
+
+# El IAC Driver ya está activo con dos buses; se usan tal cual en vez de renombrarlos.
+midi_out_virtual: "Driver IAC Bus 1"   # AVI Out: espejo MIDI hacia TouchDesigner / rekordbox
+midi_in_virtual: "Driver IAC Bus 2"    # AVI In: entrada de control
+controller_midi_port: null             # no hay controlador MIDI conectado
+
+apps:
+  touchdesigner_version: "2025.33230"   # instalado con brew --cask el 2026-09-23 (licencia non-commercial pendiente de activar en el primer arranque)
+  resolume: "Arena 7.10.0"
+  puredata: "Pd 0.52-2"
+  dj: "rekordbox 6"
