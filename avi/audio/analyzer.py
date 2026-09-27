@@ -1,133 +1,188 @@
-"""Analyzer: bloques de audio -> AnalysisFrame (instrumentos, golpes, BPM, compas).
+"""Analizador en streaming: audio -> un AudioFrame por hop (~10.7 ms a 48 kHz).
 
-Es la entrada del cerebro (F2). Funciona igual en vivo (bloques de sounddevice) y
-offline (`avi analyze cancion.wav`).
+    an = Analyzer()                 # config/bands.yaml
+    for frame in an.process(block): # bloques de cualquier tamano
+        frame.instruments["kick"].level
+
+Mismo codigo para archivo (avi analyze) y entrada en vivo (avi listen).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
-import yaml
 
-from .spectrogram import Spectrogram, to_mono
+from .config import AnalyzerConfig
+from .onsets import OnsetDetector
+from .spectrum import CausalHPSS, StreamingSTFT
 from .tempo import TempoTracker
-from .trackers import TrackerBank, TrackerState, configs_from_yaml
-
-DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "bands.yaml"
+from .trackers import EPS, TrackerBank
 
 
 @dataclass
-class AnalysisFrame:
-    t: float
-    instruments: dict[str, TrackerState]
-    onset_strength: float
-    bpm: float
-    beat: int
-    bar: int
-    on_beat: bool
-    phrase_pos: float
-    loudness: float
+class InstrumentState:
+    level: float
+    onset: bool
+    hz: tuple[float, float]
+    confidence: float
 
-    def as_dict(self) -> dict:
+    def to_dict(self) -> dict:
         return {
-            "t": round(self.t, 4),
-            "bpm": round(self.bpm, 2),
-            "beat": self.beat,
-            "bar": self.bar,
-            "on_beat": self.on_beat,
-            "phrase_pos": round(self.phrase_pos, 4),
-            "loudness": round(self.loudness, 4),
-            "onset_strength": round(self.onset_strength, 5),
-            "instruments": {k: v.as_dict() for k, v in self.instruments.items()},
+            "level": round(self.level, 4),
+            "onset": self.onset,
+            "hz": [int(round(self.hz[0])), int(round(self.hz[1]))],
+            "confidence": round(self.confidence, 3),
         }
 
 
-def load_config(path: str | Path | None = None) -> dict:
-    with open(path or DEFAULT_CONFIG, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+@dataclass
+class AudioFrame:
+    t: float
+    instruments: dict[str, InstrumentState]
+    bpm: float | None
+    beat: int              # 1..4 (0 = sin tempo aun)
+    bar: int
+    is_beat: bool          # True en el frame donde cae el beat
+    beat_phase: float      # 0..1 dentro del beat
+    phrase_pos: float      # 0..1 dentro de la frase de 16 beats
+    energy: float          # 0..1, energia corta (~0.3 s) relativa al pico reciente
+    energy_long: float     # 0..1, energia larga (~8 s); el cerebro compara ambas
+    loudness_db: float     # dBFS del frame
+    centroid_hz: float
+    brightness: float      # 0..1, centroide en escala log de 200 Hz a 8 kHz
+    extra: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "t": round(self.t, 4),
+            "bpm": None if self.bpm is None else round(self.bpm, 2),
+            "beat": self.beat,
+            "bar": self.bar,
+            "is_beat": self.is_beat,
+            "beat_phase": round(self.beat_phase, 3),
+            "phrase_pos": round(self.phrase_pos, 4),
+            "energy": round(self.energy, 4),
+            "energy_long": round(self.energy_long, 4),
+            "loudness_db": round(self.loudness_db, 1),
+            "centroid_hz": int(round(self.centroid_hz)),
+            "brightness": round(self.brightness, 3),
+            "instruments": {k: v.to_dict() for k, v in self.instruments.items()},
+        }
+
+
+def _ema_coef(tau_s: float, frame_rate: float) -> float:
+    return 1.0 - np.exp(-1.0 / (tau_s * frame_rate))
 
 
 class Analyzer:
-    def __init__(self, config: dict | None = None, sample_rate: int | None = None):
-        cfg = config or load_config()
-        self.sample_rate = int(sample_rate or cfg.get("sample_rate", 48000))
-        fft_size = int(cfg.get("fft_size", 2048))
-        hop = int(cfg.get("hop_size", cfg.get("block_size", 512)))
-        self.spectrogram = Spectrogram(self.sample_rate, fft_size, hop)
-        tracker_cfgs, adapt = configs_from_yaml(cfg)
-        self.bank = TrackerBank(tracker_cfgs, self.spectrogram.freqs, self.spectrogram.frame_rate, adapt)
-        self.tempo = TempoTracker(self.spectrogram.frame_rate)
-        self._frames = 0
-        self._loud_ref = 1e-6
-        self._loud_decay = np.exp(-1.0 / (self.spectrogram.frame_rate * 6.0))
-        self.last: AnalysisFrame | None = None
-
-    @property
-    def frame_rate(self) -> float:
-        return self.spectrogram.frame_rate
-
-    def process(self, samples: np.ndarray) -> list[AnalysisFrame]:
-        """Agrega un bloque de audio y devuelve un AnalysisFrame por espectro completo."""
-        out = []
-        for power in self.spectrogram.push(to_mono(samples)):
-            out.append(self._process_spectrum(power))
-        return out
-
-    def _process_spectrum(self, power: np.ndarray) -> AnalysisFrame:
-        self._frames += 1
-        states = self.bank.process(power)
-        # Fuerza de golpe global: suma de los flujos de los rastreadores transitorios.
-        onset_strength = 0.0
-        for tracker in self.bank.trackers:
-            if tracker.cfg.is_transient:
-                onset_strength += tracker.state.raw * (1.0 if tracker.state.onset else 0.0)
-                onset_strength += tracker.state.raw * 0.1
-        self.tempo.push(onset_strength)
-        loud_raw = float(np.sqrt(power.sum()))
-        self._loud_ref = max(loud_raw, self._loud_ref * self._loud_decay, 1e-6)
-        loudness = min(1.0, loud_raw / self._loud_ref)
-        frame = AnalysisFrame(
-            t=self.spectrogram.time_of_frame(self._frames),
-            instruments=states,
-            onset_strength=onset_strength,
-            bpm=self.tempo.bpm,
-            beat=self.tempo.beat,
-            bar=self.tempo.bar,
-            on_beat=self.tempo.on_beat,
-            phrase_pos=self.tempo.phrase_pos(),
-            loudness=loudness,
+    def __init__(self, cfg: AnalyzerConfig | None = None, sample_rate: float | None = None):
+        self.cfg = cfg or AnalyzerConfig.load()
+        self.sample_rate = float(sample_rate or self.cfg.sample_rate)
+        self.stft = StreamingSTFT(self.cfg.fft_size, self.cfg.hop_size)
+        self.hpss = CausalHPSS(self.cfg.hpss_frames)
+        self.freqs = self.stft.freqs(self.sample_rate)
+        self.frame_rate = self.sample_rate / self.cfg.hop_size
+        self.bank = TrackerBank(self.cfg, self.freqs, self.frame_rate)
+        K = len(self.cfg.trackers)
+        self.onsets = OnsetDetector(
+            K, self.frame_rate, k=self.cfg.onset_threshold_k,
+            relative_min=self.cfg.onset_relative_min, min_interval_s=self.cfg.onset_min_interval_s,
         )
-        self.last = frame
-        return frame
+        self.tempo = TempoTracker(
+            self.frame_rate, self.cfg.bpm_range, self.cfg.prior_bpm,
+            self.cfg.tempo_window_s, self.cfg.tempo_update_s,
+            lead_frames=self.cfg.fft_size / 2 / self.cfg.hop_size,
+        )
+        self.names = self.cfg.names
+        self.report_onset = np.array([t.onset for t in self.cfg.trackers])
+        self.low_idx = [i for i, n in enumerate(self.names) if n in ("sub", "kick", "bass")]
+
+        # Peso de cada transitorio en la envolvente de tempo: 1 en graves, menos en agudos.
+        centers = np.array([np.sqrt(t.nominal_hz[0] * t.nominal_hz[1]) for t in self.cfg.trackers])
+        self.tempo_w = np.where(self.bank.transient, 1.0 / (1.0 + np.log2(np.maximum(centers, 100) / 100) / 2), 0.0)
+
+        self.silence_amp = 10 ** (self.cfg.silence_db / 20)
+        self.peak_decay = np.exp(-1.0 / (10.0 * self.frame_rate))
+        self.peak = np.full(K, self.silence_amp * 10)
+        self.level = np.zeros(K)
+        self.e_short = 0.0
+        self.e_long = 0.0
+        self.e_peak = self.silence_amp * 10
+        self.e_peak_decay = np.exp(-1.0 / (30.0 * self.frame_rate))
+        self.a_short = _ema_coef(0.3, self.frame_rate)
+        self.a_long = _ema_coef(8.0, self.frame_rate)
+        self.band = (self.freqs >= 20) & (self.freqs <= 18000)
+        self.n_frames = 0
+
+    def process(self, samples: np.ndarray) -> list[AudioFrame]:
+        return [self._frame(mag) for mag in self.stft.push(samples)]
+
+    def _frame(self, mag: np.ndarray) -> AudioFrame:
+        self.n_frames += 1
+        t = self.n_frames * self.cfg.hop_size / self.sample_rate
+        perc, harm = self.hpss.push(mag)
+
+        amp = float(np.sqrt(np.sum(mag[self.band] ** 2)))
+        silent = amp < self.silence_amp
+        M = self.bank.separate(perc, harm)
+        A = np.sqrt(np.sum(M**2, axis=1))
+
+        # Golpes: la fuerza de un transitorio es su energia percusiva enmascarada. Solo
+        # cuenta si lo percusivo domina su rango: el vibrato de una nota sostenida mueve
+        # un poco la parte percusiva, pero no llega a esa fraccion.
+        range_amp = np.sqrt(self.bank.window @ (mag**2)) + EPS
+        share = A / range_amp
+        strength = np.where(self.bank.transient, A, 0.0)
+        hits = (self.onsets.push(strength, gate=not silent) & self.bank.transient
+                & (share >= self.cfg.onset_min_percussive_share))
+        self.bank.adapt(M, perc, harm, hits, silent)
+
+        # Nivel 0..1 relativo al pico reciente de cada rastreador, con ataque/relajacion.
+        # Para los transitorios el pico nunca baja de media amplitud de su rango, asi el
+        # temblor percusivo de un sonido sostenido no se amplifica a nivel 1.
+        floor = np.where(self.bank.transient, 0.5 * range_amp, 0.0)
+        self.peak = np.maximum.reduce([A, self.peak * self.peak_decay, floor,
+                                       np.full_like(A, self.silence_amp * 10)])
+        raw = np.zeros_like(A) if silent else np.clip(A / self.peak, 0.0, 1.0)
+        coef = np.where(raw > self.level, self.cfg.attack, self.cfg.release)
+        self.level = coef * self.level + (1 - coef) * raw
+
+        # Tempo: envolvente = fuerza de golpe de cada transitorio relativa a su pico,
+        # con mas peso en los graves (el bombo suele marcar el beat; los hats el contratiempo).
+        env = float(self.tempo_w @ (strength / self.peak))
+        low = float(A[self.low_idx].sum()) if self.low_idx else 0.0
+        is_beat = self.tempo.push(0.0 if silent else env, low)
+
+        # Energia global y color espectral.
+        self.e_peak = max(amp, self.e_peak * self.e_peak_decay, self.silence_amp * 10)
+        e = 0.0 if silent else amp / self.e_peak
+        self.e_short += self.a_short * (e - self.e_short)
+        self.e_long += self.a_long * (e - self.e_long)
+        spec = mag[self.band]
+        centroid = float((self.freqs[self.band] @ spec) / (spec.sum() + EPS)) if not silent else 0.0
+        bright = float(np.clip(np.log2(max(centroid, 1.0) / 200.0) / np.log2(8000 / 200), 0.0, 1.0))
+
+        instruments = {
+            name: InstrumentState(
+                level=float(self.level[k]),
+                onset=bool(hits[k] and self.report_onset[k]),
+                hz=self.bank.hz[k],
+                confidence=float(self.bank.confidence[k]),
+            )
+            for k, name in enumerate(self.names)
+        }
+        return AudioFrame(
+            t=t, instruments=instruments, bpm=self.tempo.bpm, beat=self.tempo.beat, bar=self.tempo.bar,
+            is_beat=is_beat, beat_phase=self.tempo.phase, phrase_pos=self.tempo.phrase_pos(), energy=self.e_short, energy_long=self.e_long,
+            loudness_db=float(20 * np.log10(amp + EPS)), centroid_hz=centroid, brightness=bright,
+        )
 
 
-def analyze_signal(samples: np.ndarray, sample_rate: int, config: dict | None = None, block_size: int = 512) -> list[AnalysisFrame]:
-    """Analiza una senal completa en bloques, como si llegara en vivo."""
-    cfg = dict(config or load_config())
-    cfg["sample_rate"] = sample_rate
-    analyzer = Analyzer(cfg, sample_rate)
-    frames: list[AnalysisFrame] = []
-    mono = to_mono(samples)
-    for start in range(0, len(mono), block_size):
-        frames.extend(analyzer.process(mono[start:start + block_size]))
-    return frames
-
-
-def summarize(frames: list[AnalysisFrame]) -> dict:
-    """Resumen para humanos: BPM final, golpes por instrumento y rango final de cada rastreador."""
-    if not frames:
-        return {}
-    names = list(frames[-1].instruments.keys())
-    onsets = {n: sum(1 for f in frames if f.instruments[n].onset) for n in names}
-    levels = {n: round(float(np.mean([f.instruments[n].level for f in frames])), 3) for n in names}
-    hz = {n: frames[-1].instruments[n].as_dict()["hz"] for n in names}
-    return {
-        "seconds": round(frames[-1].t, 2),
-        "frames": len(frames),
-        "bpm": round(frames[-1].bpm, 1),
-        "onsets": onsets,
-        "mean_level": levels,
-        "final_hz": hz,
-    }
+def analyze_array(samples: np.ndarray, sample_rate: float, cfg: AnalyzerConfig | None = None,
+                  block_size: int = 4096) -> list[AudioFrame]:
+    """Analiza un arreglo completo en bloques, igual que lo haria en vivo."""
+    an = Analyzer(cfg, sample_rate)
+    out: list[AudioFrame] = []
+    for i in range(0, len(samples), block_size):
+        out.extend(an.process(samples[i:i + block_size]))
+    return out

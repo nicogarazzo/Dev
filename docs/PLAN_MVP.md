@@ -91,14 +91,14 @@ Módulos (una carpeta por fase, ver `avi/`):
 
 | Módulo | Hace | Fase |
 |---|---|---|
-| `avi/audio` | **hecho**: espectrograma, rastreadores adaptativos, onsets, BPM (`Analyzer.process(bloque) → AnalysisFrame`) | F1 |
+| `avi/audio` | **hecho**: espectrograma, separación percusivo/armónico, rastreadores adaptativos, onsets, BPM (`Analyzer.process(bloque) → AudioFrame`, ver `docs/F1_ANALISIS.md`) | F1 |
 | `avi/brain` | Detecta sección, elige escena y paleta, produce `ShowState` | F2 |
 | `avi/patch` | Perfiles de luces, fixtures, grupos con delay → valores por canal | F3 |
 | `avi/outputs` | `dmx.py` (**hecho**: `EnttecProBackend`, `ArtNetBackend`, `NullBackend`); `ShowState` → patch → DMX; `ShowState` → OSC (TD) | F3 |
 | `avi/ui` | UI web local para configurar hardware, probar canales y monitorear | F4 |
 | `avi/control` | Controlador MIDI de entrada → overrides | F5 |
 | `touchdesigner/` | Script que construye la red de TD (escenas + reproductor de clips) | F5 |
-| `avi/cli.py` | **hecho**: `avi synth`, `avi analyze`, `avi live` | F1 |
+| `avi/cli.py` | **hecho**: `avi synth`, `avi analyze`, `avi live`, `avi demo` | F1 |
 | `scripts/` | **hecho**: `dmx_probe.py` (barrido de canales), `audio_probe.py` (bandas del loopback) | L1/L2 |
 
 ---
@@ -251,7 +251,7 @@ respaldo para tu LLM local.
    interfaz y las luces.
 
 ### Bloque B — Cerebro (cloud)
-1. **F1 · Análisis adaptativo** — **Hecho** (PR F1): `avi/audio/` con espectrograma, rastreadores con huella espectral y máscara suave, onsets por instrumento, BPM/compás; `avi synth` (canción de juguete), `avi analyze` (timeline JSON) y `avi live` (loopback). 11 tests: bombo y bajo superpuestos se separan, el bajo a 90 Hz baja el rango del rastreador, BPM 126 ± 3.
+1. **F1 · Análisis adaptativo** — **Hecho** (PR #5 + PR #6, unificados): `avi/audio/` con espectrograma, separación percusivo/armónico, rastreadores con huella espectral y máscara suave, golpes por instrumento, BPM/beat/compás/frase y energía; `avi synth`, `avi analyze` (timeline JSON), `avi live` (loopback) y `avi demo`. 25 tests con dos fuentes de audio sintético. Detalle y cifras en `docs/F1_ANALISIS.md`.
 2. **F2 · Cerebro** — Secciones, escenas, paleta, `ShowState` + tests.
 3. **F3 · Patch + salidas** — Perfiles, fixtures, grupos con delay sobre `dmx.py` (ya hecho), OSC a TD, modo `--dry-run` con `NullBackend`.
 4. **F4 · UI web de hardware** — Dispositivos, perfiles (importa Open Fixture Library), patch, probar/identificar, monitor en vivo. Testeada en cloud con `NullBackend`.
